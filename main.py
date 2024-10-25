@@ -2,6 +2,7 @@ import datetime
 import os
 import random
 import subprocess
+import logging
 
 # Constants
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -25,6 +26,8 @@ COMMIT_MESSAGES = [
     ("Update the Azure config", 1),
 ]
 
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def parse_date(date_str, default):
     return datetime.datetime.strptime(date_str, "%Y-%m-%d") if date_str else default
@@ -47,8 +50,9 @@ def write_to_file(filename, content):
     try:
         with open(filename, "w") as f:
             f.write(content + "\n")
+        logging.info(f"Wrote to file {filename}: {content}")
     except IOError as e:
-        print(f"Error writing to file {filename}: {e}")
+        logging.error(f"Error writing to file {filename}: {e}")
 
 
 def get_random_message():
@@ -56,15 +60,25 @@ def get_random_message():
     return random.choice(weighted_messages)
 
 
+def run_subprocess(command):
+    try:
+        result = subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return result.stdout.decode().strip()
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Error running command {' '.join(command)}: {e.stderr.decode().strip()}")
+        raise
+
+
 def commit_changes(filename, date):
     formatted_date = format_date(date)
     try:
-        subprocess.run(["git", "add", filename], check=True)
+        run_subprocess(["git", "add", filename])
         os.environ["GIT_COMMITTER_DATE"] = formatted_date
         commit_msg = get_random_message()
-        subprocess.run(["git", "commit", "--date", formatted_date, "-m", commit_msg], check=True)
+        run_subprocess(["git", "commit", "--date", formatted_date, "-m", commit_msg])
+        logging.info(f"Committed changes with message: {commit_msg}")
     except subprocess.CalledProcessError as e:
-        print(f"Error during git commit: {e}")
+        logging.error(f"Error during git commit: {e}")
     finally:
         os.environ.pop("GIT_COMMITTER_DATE", None)
 
@@ -79,6 +93,7 @@ def flip_coin():
 
 def perform_daily_commits(date, filename):
     if is_weekend(date) and not flip_coin():
+        logging.info(f"Skipping weekend day: {date}")
         return  # Skip this weekend day
 
     daily_commits = (
@@ -93,11 +108,11 @@ def perform_daily_commits(date, filename):
 
 def write_commits(start="", end=""):
     try:
-        subprocess.run(["git", "switch", "main"], check=True)
-        subprocess.run(["git", "reset", "--hard", "dev"], check=True)
-        subprocess.run(["git", "push", "--force"], check=True)
+        run_subprocess(["git", "switch", "main"])
+        run_subprocess(["git", "reset", "--hard", "dev"])
+        run_subprocess(["git", "push", "--force"])
     except subprocess.CalledProcessError as e:
-        print(f"Error during git operations: {e}")
+        logging.error(f"Error during git operations: {e}")
         return
 
     one_year_ago = datetime.datetime.now() - datetime.timedelta(weeks=52)
@@ -109,26 +124,28 @@ def write_commits(start="", end=""):
         start_date += datetime.timedelta(days=1)
         if start_date.day % 10 == 0:  # Push every 10 days to avoid too many commits
             try:
-                subprocess.run(["git", "push"], check=True)
+                run_subprocess(["git", "push"])
+                logging.info("Pushed commits to remote repository")
             except subprocess.CalledProcessError as e:
-                print(f"Error during git push: {e}")
+                logging.error(f"Error during git push: {e}")
 
     try:
-        subprocess.run(["git", "push"], check=True)  # Push remaining commits
+        run_subprocess(["git", "push"])  # Push remaining commits
+        logging.info("Pushed remaining commits to remote repository")
     except subprocess.CalledProcessError as e:
-        print(f"Error during final git push: {e}")
+        logging.error(f"Error during final git push: {e}")
 
 
 def get_last_commit_info(branch):
     try:
-        last_commit_date = subprocess.check_output(["git", "log", branch, "-1", "--format=%cd"]).decode().strip()
-        last_commit_msg = subprocess.check_output(["git", "log", branch, "-1", "--format=%s"]).decode().strip()
+        last_commit_date = run_subprocess(["git", "log", branch, "-1", "--format=%cd"])
+        last_commit_msg = run_subprocess(["git", "log", branch, "-1", "--format=%s"])
         last_commit_date = datetime.datetime.strptime(
             last_commit_date, "%a %b %d %H:%M:%S %Y %z"
         ).replace(tzinfo=None)
         return format_date(last_commit_date), last_commit_msg
     except subprocess.CalledProcessError as e:
-        print(f"Error retrieving last commit info from {branch}: {e}")
+        logging.error(f"Error retrieving last commit info from {branch}: {e}")
         return None, None
 
 

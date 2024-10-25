@@ -133,8 +133,8 @@ def write_commits(start="", end=""):
         logging.error(f"Error during git operations: {e}")
         return
 
-    one_year_ago = datetime.datetime.now() - datetime.timedelta(weeks=52)
-    start_date = parse_date(start, one_year_ago)
+    one_year_ago_plus_one_week = datetime.datetime.now() - datetime.timedelta(weeks=52) + datetime.timedelta(weeks=1)
+    start_date = parse_date(start, one_year_ago_plus_one_week)
     end_date = parse_date(end, datetime.datetime.now())
 
     while start_date < end_date:

@@ -149,10 +149,10 @@ def perform_daily_commits(date: datetime.datetime, filename: str) -> None:
         return  # Skip this weekend day
 
     daily_commits = (
-        random.randint(0, 25) if not is_weekend(date) else random.randint(0, 5)
+        random.randint(0, 15) if not is_weekend(date) else random.randint(0, 3)
     )
 
-    if daily_commits > 10 and flip_coin():
+    if daily_commits > 5 and flip_coin():
         daily_commits //= 2
 
     commit_times = generate_commit_times(date, daily_commits)

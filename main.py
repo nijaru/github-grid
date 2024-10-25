@@ -119,29 +119,34 @@ def write_commits(start="", end=""):
         print(f"Error during final git push: {e}")
 
 
-def get_last_commit_info():
+def get_last_commit_info(branch):
     try:
-        last_commit_date = subprocess.check_output(["git", "log", "-1", "--format=%cd"]).decode().strip()
-        last_commit_msg = subprocess.check_output(["git", "log", "-1", "--format=%s"]).decode().strip()
+        last_commit_date = subprocess.check_output(["git", "log", branch, "-1", "--format=%cd"]).decode().strip()
+        last_commit_msg = subprocess.check_output(["git", "log", branch, "-1", "--format=%s"]).decode().strip()
         last_commit_date = datetime.datetime.strptime(
             last_commit_date, "%a %b %d %H:%M:%S %Y %z"
         ).replace(tzinfo=None)
         return format_date(last_commit_date), last_commit_msg
     except subprocess.CalledProcessError as e:
-        print(f"Error retrieving last commit info: {e}")
+        print(f"Error retrieving last commit info from {branch}: {e}")
         return None, None
 
 
+def compare_last_commit_messages():
+    _, main_commit_msg = get_last_commit_info("main")
+    _, dev_commit_msg = get_last_commit_info("dev")
+    return main_commit_msg == dev_commit_msg
+
+
 def catch_up():
-    last_commit_date, _ = get_last_commit_info()
+    last_commit_date, _ = get_last_commit_info("main")
     if last_commit_date:
         end_date = format_date(datetime.datetime.now() + datetime.timedelta(days=1))
         write_commits(start=last_commit_date, end=end_date)
 
 
 def main():
-    _, last_commit_msg = get_last_commit_info()
-    if last_commit_msg == "Add main.py":
+    if compare_last_commit_messages():
         write_commits()
     else:
         catch_up()

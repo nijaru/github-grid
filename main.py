@@ -3,6 +3,8 @@ import os
 import random
 import subprocess
 import logging
+import signal
+import sys
 from contextlib import contextmanager
 
 # Constants
@@ -133,7 +135,7 @@ def write_commits(start="", end=""):
         logging.error(f"Error during git operations: {e}")
         return
 
-    one_year_ago_plus_one_week = datetime.datetime.now() - datetime.timedelta(weeks=52) + datetime.timedelta(weeks=1)
+    one_year_ago_plus_one_week = datetime.datetime.now() - datetime.timedelta(weeks=53)
     start_date = parse_date(start, one_year_ago_plus_one_week)
     end_date = parse_date(end, datetime.datetime.now())
 
@@ -179,8 +181,14 @@ def catch_up():
         end_date = format_date(datetime.datetime.now() + datetime.timedelta(days=1))
         write_commits(start=last_commit_date, end=end_date)
 
+def signal_handler(sig, frame):
+    """Handle SIGINT (Ctrl+C) signal."""
+    logging.info("Received SIGINT (Ctrl+C). Exiting gracefully...")
+    sys.exit(0)
+
 def main():
     """Main function to execute the script."""
+    signal.signal(signal.SIGINT, signal_handler)  # Register the signal handler
     if compare_last_commit_messages():
         write_commits()
     else:

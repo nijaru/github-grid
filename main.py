@@ -1,9 +1,9 @@
 import datetime
+import logging
 import os
 import random
-import subprocess
-import logging
 import signal
+import subprocess
 import sys
 from contextlib import contextmanager
 
@@ -30,11 +30,15 @@ COMMIT_MESSAGES = [
 ]
 
 # Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
 
 def parse_date(date_str, default):
     """Parse a date string into a datetime object."""
     return datetime.datetime.strptime(date_str, "%Y-%m-%d") if date_str else default
+
 
 def set_random_time(hour, date):
     """Set a random time within a specific hour on a given date."""
@@ -45,9 +49,11 @@ def set_random_time(hour, date):
         microsecond=random.randint(0, 999999),
     )
 
+
 def format_date(date):
     """Format a datetime object into a string."""
     return date.strftime(DATE_FORMAT)
+
 
 def write_to_file(filename, content):
     """Write content to a file."""
@@ -58,19 +64,26 @@ def write_to_file(filename, content):
     except IOError as e:
         logging.error(f"Error writing to file {filename}: {e}")
 
+
 def get_random_message():
     """Get a random commit message based on weighted probabilities."""
     weighted_messages = [msg for msg, weight in COMMIT_MESSAGES for _ in range(weight)]
     return random.choice(weighted_messages)
 
+
 def run_subprocess(command):
     """Run a subprocess command and return its output."""
     try:
-        result = subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        result = subprocess.run(
+            command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
         return result.stdout.decode().strip()
     except subprocess.CalledProcessError as e:
-        logging.error(f"Error running command {' '.join(command)}: {e.stderr.decode().strip()}")
+        logging.error(
+            f"Error running command {' '.join(command)}: {e.stderr.decode().strip()}"
+        )
         raise
+
 
 @contextmanager
 def set_git_commit_date(date):
@@ -81,6 +94,7 @@ def set_git_commit_date(date):
     finally:
         os.environ.pop("GIT_COMMITTER_DATE", None)
 
+
 def commit_changes(filename, date):
     """Commit changes to the git repository."""
     formatted_date = format_date(date)
@@ -88,46 +102,65 @@ def commit_changes(filename, date):
         run_subprocess(["git", "add", filename])
         commit_msg = get_random_message()
         with set_git_commit_date(formatted_date):
-            run_subprocess(["git", "commit", "--date", formatted_date, "-m", commit_msg])
+            run_subprocess(
+                ["git", "commit", "--date", formatted_date, "-m", commit_msg]
+            )
         logging.info(f"Committed changes with message: {commit_msg}")
     except subprocess.CalledProcessError as e:
         logging.error(f"Error during git commit: {e}")
+
 
 def is_weekend(date):
     """Check if a given date is a weekend."""
     return date.weekday() > 4
 
+
 def flip_coin():
     """Simulate a coin flip."""
     return bool(random.randint(0, 1))
 
-def perform_daily_commits(date, filename):
-    """Perform a number of commits for a given date."""
-    if is_weekend(date) and not flip_coin():
-        logging.info(f"Skipping weekend day: {date}")
-        return  # Skip this weekend day
 
-    daily_commits = (
-        random.randint(0, 20) if not is_weekend(date) else random.randint(0, 5)
-    )
-    
-    if daily_commits > 10 and flip_coin():
-        daily_commits = random.randint(0,10)
-    
+def should_skip_day(date):
+    """Determine if the day should be skipped based on weekend and coin flip."""
+    return is_weekend(date) and not flip_coin()
+
+
+def generate_commit_times(date, daily_commits):
+    """Generate a set of unique commit times for a given date."""
     commit_times = set()
-    
     while len(commit_times) < daily_commits:
         hour = random.randint(9, 22)
         commit_time = set_random_time(hour, date)
         commit_times.add(commit_time)
+    return sorted(commit_times)
 
-    commit_times = sorted(commit_times)  # Ensure commits are in chronological order
+
+def perform_daily_commits(date, filename):
+    """Perform a number of commits for a given date."""
+    if should_skip_day(date):
+        logging.info(f"Skipping weekend day: {date.strftime('%Y-%m-%d')}")
+        return  # Skip this weekend day
+
+    daily_commits = (
+        random.randint(0, 25) if not is_weekend(date) else random.randint(0, 5)
+    )
+
+    if daily_commits > 10 and flip_coin():
+        daily_commits //= 2
+
+    commit_times = generate_commit_times(date, daily_commits)
 
     for commit_time in commit_times:
-        write_to_file(filename, format_date(commit_time))
-        commit_changes(filename, commit_time)
+        try:
+            write_to_file(filename, format_date(commit_time))
+            commit_changes(filename, commit_time)
+        except Exception as e:
+            logging.error(f"Error during commit process: {e}")
 
-    logging.info(f"Performed {len(commit_times)} commits on {date.strftime('%Y-%m-%d')}")
+    logging.info(
+        f"Performed {len(commit_times)} commits on {date.strftime('%Y-%m-%d')}"
+    )
+
 
 def write_commits(start="", end=""):
     """Write commits between the start and end dates."""
@@ -159,6 +192,7 @@ def write_commits(start="", end=""):
     except subprocess.CalledProcessError as e:
         logging.error(f"Error during final git push: {e}")
 
+
 def get_last_commit_info(branch):
     """Get the last commit date and message for a given branch."""
     try:
@@ -172,11 +206,13 @@ def get_last_commit_info(branch):
         logging.error(f"Error retrieving last commit info from {branch}: {e}")
         return None, None
 
+
 def compare_last_commit_messages():
     """Compare the last commit messages of the main and dev branches."""
     _, main_commit_msg = get_last_commit_info("main")
     _, dev_commit_msg = get_last_commit_info("dev")
     return main_commit_msg == dev_commit_msg
+
 
 def catch_up():
     """Catch up on commits if the main branch is behind."""
@@ -185,10 +221,12 @@ def catch_up():
         end_date = format_date(datetime.datetime.now() + datetime.timedelta(days=1))
         write_commits(start=last_commit_date, end=end_date)
 
+
 def signal_handler(sig, frame):
     """Handle SIGINT (Ctrl+C) signal."""
     logging.info("Received SIGINT (Ctrl+C). Exiting gracefully...")
     sys.exit(0)
+
 
 def main():
     """Main function to execute the script."""
@@ -197,6 +235,7 @@ def main():
         write_commits()
     else:
         catch_up()
+
 
 if __name__ == "__main__":
     main()

@@ -108,10 +108,14 @@ def perform_daily_commits(date, filename):
         return  # Skip this weekend day
 
     daily_commits = (
-        random.randint(0, 20) if not is_weekend(date) else random.randint(0, 8)
+        random.randint(0, 20) if not is_weekend(date) else random.randint(0, 5)
     )
+    
+    if daily_commits > 10 and flip_coin():
+        daily_commits = random.randint(0,10)
+    
     commit_times = set()
-
+    
     while len(commit_times) < daily_commits:
         hour = random.randint(9, 22)
         commit_time = set_random_time(hour, date)

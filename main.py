@@ -103,32 +103,17 @@ def write_commits(start="", end=""):
         msg = ""
         commits = 0
 
-        daily_commits = 0
+        daily_commits = random.randint(0,20)
 
-        # only work some weekends
-        weekend = is_weekend(date)
-        if weekend and flip_coin() or flip_coin():
-            date = next_day(date)
+        if is_weekend(date) and flip_coin():
+            daily_commits = random.randint(0, 8)
+        else:
             continue
 
-        # for each hour in the day
-        for i in range(9, 20):
-            # don't work so hard on weekends
-            if weekend and flip_coin():
-                continue
-            
-            # guarantee some work
-            if daily_commits == 0 and i > 10:
-                work(i, date, filename, msg)
-                commits += 1
-                daily_commits += 1
-            
-            # else work with a 50% chance
-            elif flip_coin():
-                work(i, date, filename, msg)
-                commits += 1
-                daily_commits += 1
-
+        hours = random.sample(range(9, 21), daily_commits)
+        for i in sorted(hours):
+            work(i, date, filename, msg)
+            commits += 1
 
         date = next_day(date)
         if commits > 100:
@@ -161,14 +146,12 @@ def catch_up():
 
 
 def main():
-    # last_commit_msg = get_last_commit_msg()
-    # if last_commit_msg == "Add main.py":
-    #     write_commits()
-    # else:
-    #     catch_up()
-    yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime("%Y-%m-%d")
-    write_commits(start=yesterday)
-    
+    last_commit_msg = get_last_commit_msg()
+    if last_commit_msg == "Add main.py":
+        write_commits()
+    else:
+        catch_up()
+
 
 
 if __name__ == "__main__":

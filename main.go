@@ -1,0 +1,290 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"log"
+	"math/rand"
+	"os"
+	"os/exec"
+	"os/signal"
+	"strings"
+	"time"
+)
+
+const (
+	dateFormat      = "2006-01-02 15:04:05"
+	shortDateFormat = "2006-01-02"
+	filename        = "edit.txt"
+)
+
+var commitMessages = []struct {
+	message string
+	weight  int
+}{
+	{"Add a new feature", 10},
+	{"Fix a bug", 8},
+	{"Refactor some code", 6},
+	{"Add a new test", 5},
+	{"Update the requirements", 4},
+	{"Update the documentation", 3},
+	{"Update the README", 3},
+	{"Update the license", 2},
+	{"Update the gitignore", 1},
+	{"Update the CI/CD pipeline", 1},
+	{"Update the Dockerfile", 1},
+	{"Update the Makefile", 1},
+	{"Update the GitHub Actions", 1},
+	{"Update the Jenkinsfile", 1},
+	{"Update the AWS config", 1},
+	{"Update the GCP config", 1},
+	{"Update the Azure config", 1},
+}
+
+// Git-related functions
+
+func runCommand(command string, args ...string) (string, error) {
+	cmd := exec.Command(command, args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+func setGitCommitDate(date string) func() {
+	os.Setenv("GIT_COMMITTER_DATE", date)
+	return func() {
+		os.Unsetenv("GIT_COMMITTER_DATE")
+	}
+}
+
+func commitChanges(filename string, date time.Time) error {
+	formattedDate := date.Format(dateFormat)
+	defer setGitCommitDate(formattedDate)()
+
+	if _, err := runCommand("git", "add", filename); err != nil {
+		return err
+	}
+
+	commitMsg := getRandomMessage()
+	if _, err := runCommand("git", "commit", "--date", formattedDate, "-m", commitMsg); err != nil {
+		return err
+	}
+
+	log.Printf("Committed changes with message: %s", commitMsg)
+	return nil
+}
+
+func pushCommits() {
+	if _, err := runCommand("git", "push"); err != nil {
+		log.Printf("Error during git push: %v", err)
+	}
+}
+
+func getLastCommitInfo(branch string) (string, string, error) {
+	date, err := runCommand("git", "log", branch, "-1", "--format=%cd")
+	if err != nil {
+		return "", "", err
+	}
+	message, err := runCommand("git", "log", branch, "-1", "--format=%s")
+	if err != nil {
+		return "", "", err
+	}
+	return date, message, nil
+}
+
+func compareLastCommitMessages() bool {
+	_, mainMsg, err := getLastCommitInfo("main")
+	if err != nil {
+		log.Printf("Error retrieving last commit info from main: %v", err)
+		return false
+	}
+	_, devMsg, err := getLastCommitInfo("dev")
+	if err != nil {
+		log.Printf("Error retrieving last commit info from dev: %v", err)
+		return false
+	}
+	return mainMsg == devMsg
+}
+
+// Commit message generation
+
+func getRandomMessage() string {
+	var weightedMessages []string
+	for _, cm := range commitMessages {
+		for i := 0; i < cm.weight; i++ {
+			weightedMessages = append(weightedMessages, cm.message)
+		}
+	}
+	return weightedMessages[rand.Intn(len(weightedMessages))]
+}
+
+// Date and time handling
+
+func isWeekend(date time.Time) bool {
+	weekday := date.Weekday()
+	return weekday == time.Saturday || weekday == time.Sunday
+}
+
+func flipCoin() bool {
+	return rand.Intn(2) == 0
+}
+
+func shouldSkipDay(date time.Time) bool {
+	return isWeekend(date) && !flipCoin()
+}
+
+func generateCommitTimes(date time.Time, dailyCommits int) []time.Time {
+	var commitTimes []time.Time
+	for len(commitTimes) < dailyCommits {
+		hour := rand.Intn(14) + 9 // Between 9 and 22
+		minute := rand.Intn(60)
+		second := rand.Intn(60)
+		commitTime := time.Date(date.Year(), date.Month(), date.Day(), hour, minute, second, 0, date.Location())
+		commitTimes = append(commitTimes, commitTime)
+	}
+	return commitTimes
+}
+
+// Commit operations
+
+func performDailyCommits(ctx context.Context, date time.Time, filename string) {
+	if shouldSkipDay(date) {
+		log.Printf("Skipping weekend day: %s", date.Format(shortDateFormat))
+		return
+	}
+
+	dailyCommits := rand.Intn(16)
+	if isWeekend(date) {
+		dailyCommits = rand.Intn(4)
+	}
+
+	if dailyCommits > 5 && flipCoin() {
+		dailyCommits /= 2
+	}
+
+	commitTimes := generateCommitTimes(date, dailyCommits)
+
+	for _, commitTime := range commitTimes {
+		select {
+		case <-ctx.Done():
+			log.Println("Context cancelled, stopping commits")
+			return
+		default:
+			content := commitTime.Format(dateFormat)
+			if err := os.WriteFile(filename, []byte(content+"\n"), 0644); err != nil {
+				log.Printf("Error writing to file %s: %v", filename, err)
+				continue
+			}
+			if err := commitChanges(filename, commitTime); err != nil {
+				log.Printf("Error during commit process: %v", err)
+			}
+		}
+	}
+
+	log.Printf("Performed %d commits on %s", len(commitTimes), date.Format(shortDateFormat))
+}
+
+func writeCommits(ctx context.Context, startDate, endDate time.Time) {
+	if _, err := runCommand("git", "switch", "main"); err != nil {
+		log.Printf("Error during git switch: %v", err)
+		return
+	}
+	if _, err := runCommand("git", "reset", "--hard", "dev"); err != nil {
+		log.Printf("Error during git reset: %v", err)
+		return
+	}
+	if _, err := runCommand("git", "push", "--force"); err != nil {
+		log.Printf("Error during git push --force: %v", err)
+		return
+	}
+
+	dayCounter := 0
+	for startDate.Before(endDate) {
+		select {
+		case <-ctx.Done():
+			log.Println("Context cancelled, stopping writeCommits")
+			return
+		default:
+			performDailyCommits(ctx, startDate, filename)
+			startDate = startDate.AddDate(0, 0, 1)
+			dayCounter++
+			// Push commits every 10 days
+			if dayCounter%10 == 0 {
+				pushCommits()
+			}
+		}
+	}
+
+	// Final push to ensure all commits are pushed
+	pushCommits()
+}
+
+func catchUp(ctx context.Context) {
+	lastCommitDate, _, err := getLastCommitInfo("main")
+	if err != nil {
+		log.Printf("Error retrieving last commit date from main: %v", err)
+		return
+	}
+	startDate, err := time.Parse(shortDateFormat, lastCommitDate)
+	if err != nil {
+		log.Printf("Error parsing last commit date: %v", err)
+		return
+	}
+	endDate := time.Now().AddDate(0, 0, 1)
+	writeCommits(ctx, startDate, endDate)
+}
+
+// Signal handling
+
+func handleInterrupt(cancel context.CancelFunc) {
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
+	go func() {
+		<-sigChan
+		log.Println("Received SIGINT (Ctrl+C). Exiting gracefully...")
+		cancel()
+	}()
+}
+
+// Main process
+
+func main() {
+	startDateStr := flag.String("start", "", "Start date for the commits (format: YYYY-MM-DD)")
+	endDateStr := flag.String("end", "", "End date for the commits (format: YYYY-MM-DD)")
+	flag.Parse()
+
+	// Set default values if flags are not provided
+	var startDate, endDate time.Time
+	var err error
+	if *startDateStr == "" {
+		startDate = time.Now().AddDate(0, 0, -371) // 53 weeks ago
+	} else {
+		startDate, err = time.Parse(shortDateFormat, *startDateStr)
+		if err != nil {
+			log.Fatalf("Invalid start date format: %v", err)
+		}
+	}
+	if *endDateStr == "" {
+		endDate = time.Now()
+	} else {
+		endDate, err = time.Parse(shortDateFormat, *endDateStr)
+		if err != nil {
+			log.Fatalf("Invalid end date format: %v", err)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	handleInterrupt(cancel)
+
+	if compareLastCommitMessages() {
+		writeCommits(ctx, startDate, endDate)
+	} else {
+		catchUp(ctx)
+	}
+
+	<-ctx.Done()
+}

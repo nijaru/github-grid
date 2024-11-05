@@ -80,11 +80,13 @@ func commitChanges(filename string, date time.Time) error {
 	return nil
 }
 
-func pushCommits() {
+func pushCommits() error {
 	log.Println("Pushing commits")
 	if _, err := runCommand("git", "push"); err != nil {
 		log.Printf("Error during git push: %v", err)
+		return err
 	}
+	return nil
 }
 
 func getLastCommitInfo(branch string) (string, string, error) {
@@ -100,19 +102,19 @@ func getLastCommitInfo(branch string) (string, string, error) {
 	return date, message, nil
 }
 
-func compareLastCommitMessages() bool {
+func compareLastCommitMessages() (bool, error) {
 	log.Println("Comparing last commit messages between main and dev branches")
 	_, mainMsg, err := getLastCommitInfo("main")
 	if err != nil {
 		log.Printf("Error retrieving last commit info from main: %v", err)
-		return false
+		return false, err
 	}
 	_, devMsg, err := getLastCommitInfo("dev")
 	if err != nil {
 		log.Printf("Error retrieving last commit info from dev: %v", err)
-		return false
+		return false, err
 	}
-	return mainMsg == devMsg
+	return mainMsg == devMsg, nil
 }
 
 // Commit message generation
@@ -159,10 +161,10 @@ func generateCommitTimes(date time.Time, dailyCommits int) []time.Time {
 
 // Commit operations
 
-func performDailyCommits(ctx context.Context, date time.Time, filename string) {
+func performDailyCommits(ctx context.Context, date time.Time, filename string) error {
 	if shouldSkipDay(date) {
 		log.Printf("Skipping weekend day: %s", date.Format(shortDateFormat))
-		return
+		return nil
 	}
 
 	dailyCommits := rand.Intn(16)
@@ -180,7 +182,7 @@ func performDailyCommits(ctx context.Context, date time.Time, filename string) {
 		select {
 		case <-ctx.Done():
 			log.Println("Context cancelled, stopping commits")
-			return
+			return ctx.Err()
 		default:
 			content := commitTime.Format(dateFormat)
 			log.Printf("Writing commit content to file: %s", content)
@@ -191,27 +193,31 @@ func performDailyCommits(ctx context.Context, date time.Time, filename string) {
 			if err := commitChanges(filename, commitTime); err != nil {
 				log.Printf("Error during commit process: %v", err)
 			}
+			if err := os.Remove(filename); err != nil {
+				log.Printf("Error removing file %s: %v", filename, err)
+			}
 		}
 	}
 
 	log.Printf("Performed %d commits on %s", len(commitTimes), date.Format(shortDateFormat))
+	return nil
 }
 
-func writeCommits(ctx context.Context, startDate, endDate time.Time) {
+func writeCommits(ctx context.Context, startDate, endDate time.Time) error {
 	log.Printf("Switching to main branch")
 	if _, err := runCommand("git", "switch", "main"); err != nil {
 		log.Printf("Error during git switch: %v", err)
-		return
+		return err
 	}
 	log.Printf("Resetting main branch to dev")
 	if _, err := runCommand("git", "reset", "--hard", "dev"); err != nil {
 		log.Printf("Error during git reset: %v", err)
-		return
+		return err
 	}
 	log.Printf("Pushing changes with --force")
 	if _, err := runCommand("git", "push", "--force"); err != nil {
 		log.Printf("Error during git push --force: %v", err)
-		return
+		return err
 	}
 
 	dayCounter := 0
@@ -219,37 +225,44 @@ func writeCommits(ctx context.Context, startDate, endDate time.Time) {
 		select {
 		case <-ctx.Done():
 			log.Println("Context cancelled, stopping writeCommits")
-			return
+			return ctx.Err()
 		default:
-			performDailyCommits(ctx, startDate, filename)
+			if err := performDailyCommits(ctx, startDate, filename); err != nil {
+				return err
+			}
 			startDate = startDate.AddDate(0, 0, 1)
 			dayCounter++
 			// Push commits every 10 days
 			if dayCounter%10 == 0 {
-				pushCommits()
+				if err := pushCommits(); err != nil {
+					return err
+				}
 			}
 		}
 	}
 
 	// Final push to ensure all commits are pushed
-	pushCommits()
+	if err := pushCommits(); err != nil {
+		return err
+	}
 	log.Println("Finished processing all dates. Exiting gracefully.")
+	return nil
 }
 
-func catchUp(ctx context.Context) {
+func catchUp(ctx context.Context) error {
 	log.Println("Catching up with commits")
 	lastCommitDate, _, err := getLastCommitInfo("main")
 	if err != nil {
 		log.Printf("Error retrieving last commit date from main: %v", err)
-		return
+		return err
 	}
 	startDate, err := time.Parse(shortDateFormat, lastCommitDate)
 	if err != nil {
 		log.Printf("Error parsing last commit date: %v", err)
-		return
+		return err
 	}
 	endDate := time.Now().AddDate(0, 0, 1)
-	writeCommits(ctx, startDate, endDate)
+	return writeCommits(ctx, startDate, endDate)
 }
 
 // Signal handling
@@ -315,10 +328,19 @@ func main() {
 		log.Fatalf("Failed to ensure main branch: %v", err)
 	}
 
-	if compareLastCommitMessages() {
-		writeCommits(ctx, startDate, endDate)
+	sameMessages, err := compareLastCommitMessages()
+	if err != nil {
+		log.Fatalf("Failed to compare last commit messages: %v", err)
+	}
+
+	if sameMessages {
+		if err := writeCommits(ctx, startDate, endDate); err != nil {
+			log.Fatalf("Failed to write commits: %v", err)
+		}
 	} else {
-		catchUp(ctx)
+		if err := catchUp(ctx); err != nil {
+			log.Fatalf("Failed to catch up: %v", err)
+		}
 	}
 
 	<-ctx.Done()

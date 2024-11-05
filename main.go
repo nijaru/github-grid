@@ -91,7 +91,7 @@ func pushCommits() error {
 
 func getLastCommitInfo(branch string) (string, string, error) {
 	log.Printf("Getting last commit info for branch: %s", branch)
-	date, err := runCommand("git", "log", branch, "-1", "--format=%cd")
+	date, err := runCommand("git", "log", branch, "-1", "--format=%cd", "--date=format:"+shortDateFormat)
 	if err != nil {
 		return "", "", err
 	}
@@ -256,7 +256,7 @@ func catchUp(ctx context.Context) error {
 		log.Printf("Error retrieving last commit date from main: %v", err)
 		return err
 	}
-	startDate, err := time.Parse(shortDateFormat, lastCommitDate)
+	startDate, err := parseDate(lastCommitDate)
 	if err != nil {
 		log.Printf("Error parsing last commit date: %v", err)
 		return err
@@ -292,6 +292,16 @@ func ensureMainBranch() error {
 	return nil
 }
 
+// Utility functions for date parsing and formatting
+
+func parseDate(dateStr string) (time.Time, error) {
+	return time.Parse(shortDateFormat, dateStr)
+}
+
+func formatDate(date time.Time) string {
+	return date.Format(shortDateFormat)
+}
+
 // Main process
 
 func main() {
@@ -305,7 +315,7 @@ func main() {
 	if *startDateStr == "" {
 		startDate = time.Now().AddDate(0, 0, -371) // 53 weeks ago
 	} else {
-		startDate, err = time.Parse(shortDateFormat, *startDateStr)
+		startDate, err = parseDate(*startDateStr)
 		if err != nil {
 			log.Fatalf("Invalid start date format: %v", err)
 		}
@@ -313,10 +323,14 @@ func main() {
 	if *endDateStr == "" {
 		endDate = time.Now()
 	} else {
-		endDate, err = time.Parse(shortDateFormat, *endDateStr)
+		endDate, err = parseDate(*endDateStr)
 		if err != nil {
 			log.Fatalf("Invalid end date format: %v", err)
 		}
+	}
+
+	if startDate.After(endDate) {
+		log.Fatalf("Start date cannot be after end date")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

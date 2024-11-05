@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	dateFormat      = "2006-01-02 15:04:05"
+	dateFormat      = "2006-01-02 15:04:05 -0700"
 	shortDateFormat = "2006-01-02"
 	filename        = "edit.txt"
 )
@@ -357,6 +357,5 @@ func main() {
 		}
 	}
 
-	<-ctx.Done()
 	log.Println("Program exited gracefully.")
 }

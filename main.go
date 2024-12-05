@@ -1,27 +1,40 @@
 package main
 
 import (
-	"context"
 	"flag"
-	"log"
+	"fmt"
+	"log/slog"
 	"math/rand"
 	"os"
 	"os/exec"
 	"os/signal"
+	"sort"
 	"strings"
 	"time"
 )
 
 const (
-	dateFormat      = "2006-01-02 15:04:05 -0700"
-	shortDateFormat = "2006-01-02"
-	filename        = "edit.txt"
+	dateFormat            = "2006-01-02 15:04:05 -0700"
+	shortDateFormat       = "2006-01-02"
+	filename              = "edit.txt"
+	maxRetries            = 3
+	defaultStartDaysAgo   = -371
+	commitTimeStartHour   = 9
+	commitTimeEndHour     = 22
+	commitReductionFactor = 2
+	skipWeekdayChance     = 1.0 / 8.0 // 12.5%
+
+	// Added constants
+	weekendCommitLimit = 4  // Maximum commits on weekends
+	weekdayCommitLimit = 16 // Maximum commits on weekdays
 )
 
-var commitMessages = []struct {
-	message string
-	weight  int
-}{
+type CommitMessage struct {
+	Message string
+	Weight  int
+}
+
+var commitMessages = []CommitMessage{
 	{"Add a new feature", 10},
 	{"Fix a bug", 8},
 	{"Refactor some code", 6},
@@ -41,321 +54,343 @@ var commitMessages = []struct {
 	{"Update the Azure config", 1},
 }
 
-// Git-related functions
+var weightedCommitMessages []string
 
-func runCommand(command string, args ...string) (string, error) {
-	log.Printf("Running command: %s %s", command, strings.Join(args, " "))
+func init() {
+	rand.Seed(time.Now().UnixNano())
+	for _, cm := range commitMessages {
+		for i := 0; i < cm.Weight; i++ {
+			weightedCommitMessages = append(weightedCommitMessages, cm.Message)
+		}
+	}
+}
+
+type GitOperations struct {
+	logger     *slog.Logger
+	shouldStop bool
+}
+
+func NewGitOperations(logger *slog.Logger) *GitOperations {
+	return &GitOperations{
+		logger:     logger,
+		shouldStop: false,
+	}
+}
+
+func (g *GitOperations) runCommand(command string, args ...string) (string, error) {
+	if g.shouldStop {
+		return "", fmt.Errorf("operation cancelled")
+	}
+
+	g.logger.Info("Running command", "command", command, "args", strings.Join(args, " "))
 	cmd := exec.Command(command, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		log.Printf("Error running command: %s %s, output: %s, error: %v", command, strings.Join(args, " "), string(output), err)
-		return "", err
+		g.logger.Error("Command failed",
+			"command", command,
+			"args", args,
+			"error", err,
+			"output", string(output))
+		return "", fmt.Errorf("command failed: %v, output: %s", err, string(output))
 	}
 	return strings.TrimSpace(string(output)), nil
 }
 
-func setGitCommitDate(date string) func() {
-	log.Printf("Setting GIT_COMMITTER_DATE to %s", date)
-	os.Setenv("GIT_COMMITTER_DATE", date)
-	return func() {
-		log.Printf("Unsetting GIT_COMMITTER_DATE")
-		os.Unsetenv("GIT_COMMITTER_DATE")
+func (g *GitOperations) retryOperation(description string, operation func() error) error {
+	for i := 0; i < maxRetries; i++ {
+		if err := operation(); err != nil {
+			g.logger.Warn("Operation failed, retrying",
+				"description", description,
+				"attempt", i+1,
+				"error", err)
+			if i < maxRetries-1 {
+				time.Sleep(time.Second * time.Duration(i+1))
+				continue
+			}
+			return fmt.Errorf(
+				"operation %s failed after %d attempts: %w",
+				description,
+				maxRetries,
+				err,
+			)
+		}
+		return nil
 	}
+	return fmt.Errorf("operation %s failed after %d attempts", description, maxRetries)
 }
 
-func commitChanges(filename string, date time.Time) error {
-	formattedDate := date.Format(dateFormat)
-	defer setGitCommitDate(formattedDate)()
-
-	if _, err := runCommand("git", "add", filename); err != nil {
-		return err
-	}
-
-	commitMsg := getRandomMessage()
-	if _, err := runCommand("git", "commit", "--date", formattedDate, "-m", commitMsg); err != nil {
-		return err
-	}
-
-	log.Printf("Committed changes with message: %s", commitMsg)
-	return nil
-}
-
-func pushCommits() error {
-	log.Println("Pushing commits")
-	if _, err := runCommand("git", "push"); err != nil {
-		log.Printf("Error during git push: %v", err)
-		return err
+func (g *GitOperations) ensureGitRepository() error {
+	_, err := g.runCommand("git", "rev-parse", "--is-inside-work-tree")
+	if err != nil {
+		return fmt.Errorf("not a git repository: %w", err)
 	}
 	return nil
 }
 
-func getLastCommitInfo(branch string) (string, string, error) {
-	log.Printf("Getting last commit info for branch: %s", branch)
-	date, err := runCommand("git", "log", branch, "-1", "--format=%cd", "--date=format:"+shortDateFormat)
+func (g *GitOperations) ensureMainBranch() error {
+	currentBranch, err := g.runCommand("git", "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
-		return "", "", err
+		return fmt.Errorf("failed to get current branch: %w", err)
 	}
-	message, err := runCommand("git", "log", branch, "-1", "--format=%s")
-	if err != nil {
-		return "", "", err
-	}
-	return date, message, nil
-}
 
-func compareLastCommitMessages() (bool, error) {
-	log.Println("Comparing last commit messages between main and dev branches")
-	_, mainMsg, err := getLastCommitInfo("main")
-	if err != nil {
-		log.Printf("Error retrieving last commit info from main: %v", err)
-		return false, err
-	}
-	_, devMsg, err := getLastCommitInfo("dev")
-	if err != nil {
-		log.Printf("Error retrieving last commit info from dev: %v", err)
-		return false, err
-	}
-	return mainMsg == devMsg, nil
-}
-
-// Commit message generation
-
-func getRandomMessage() string {
-	var weightedMessages []string
-	for _, cm := range commitMessages {
-		for i := 0; i < cm.weight; i++ {
-			weightedMessages = append(weightedMessages, cm.message)
+	if currentBranch != "main" {
+		g.logger.Info("Switching to main branch", "from", currentBranch)
+		err = g.retryOperation("switch to main branch", func() error {
+			_, err := g.runCommand("git", "switch", "main")
+			return err
+		})
+		if err != nil {
+			return fmt.Errorf("failed to switch to main branch: %w", err)
 		}
 	}
-	message := weightedMessages[rand.Intn(len(weightedMessages))]
-	log.Printf("Generated random commit message: %s", message)
-	return message
+	return nil
 }
 
-// Date and time handling
-
-func isWeekend(date time.Time) bool {
-	weekday := date.Weekday()
-	return weekday == time.Saturday || weekday == time.Sunday
-}
-
-func flipCoin() bool {
-	return rand.Intn(2) == 0
-}
-
-func shouldSkipDay(date time.Time) bool {
-	return isWeekend(date) && !flipCoin()
-}
-
-func generateCommitTimes(date time.Time, dailyCommits int) []time.Time {
-	var commitTimes []time.Time
-	for len(commitTimes) < dailyCommits {
-		hour := rand.Intn(14) + 9 // Between 9 and 22
-		minute := rand.Intn(60)
-		second := rand.Intn(60)
-		commitTime := time.Date(date.Year(), date.Month(), date.Day(), hour, minute, second, 0, date.Location())
-		commitTimes = append(commitTimes, commitTime)
+func (g *GitOperations) commitChanges(filename string, date time.Time) error {
+	if g.shouldStop {
+		return fmt.Errorf("operation cancelled")
 	}
-	log.Printf("Generated %d commit times for date: %s", dailyCommits, date.Format(shortDateFormat))
-	return commitTimes
+
+	formattedDate := date.Format(dateFormat)
+	commitMsg := getRandomMessage()
+
+	return g.retryOperation("commit changes", func() error {
+		if _, err := g.runCommand("git", "add", filename); err != nil {
+			return fmt.Errorf("git add failed: %w", err)
+		}
+
+		// Execute commit with GIT_COMMITTER_DATE set
+		cmd := exec.Command("git", "commit", "--date", formattedDate, "-m", commitMsg)
+		cmd.Env = append(os.Environ(), fmt.Sprintf("GIT_COMMITTER_DATE=%s", formattedDate))
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			g.logger.Error("Git commit failed", "error", err, "output", string(output))
+			return fmt.Errorf("git commit failed: %v, output: %s", err, string(output))
+		}
+
+		g.logger.Info("Successfully committed changes",
+			"date", formattedDate,
+			"message", commitMsg)
+		return nil
+	})
 }
 
-// Commit operations
+func (g *GitOperations) pushCommits() error {
+	if g.shouldStop {
+		return fmt.Errorf("operation cancelled")
+	}
 
-func performDailyCommits(ctx context.Context, date time.Time, filename string) error {
+	return g.retryOperation("push commits", func() error {
+		_, err := g.runCommand("git", "push")
+		if err != nil {
+			return err
+		}
+		g.logger.Info("Successfully pushed commits")
+		return nil
+	})
+}
+
+func processDateRange(git *GitOperations, startDate, endDate time.Time) error {
+	if err := git.ensureGitRepository(); err != nil {
+		return err
+	}
+
+	if err := git.ensureMainBranch(); err != nil {
+		return err
+	}
+
+	dayCount := 0
+	for current := startDate; !current.After(endDate); current = current.AddDate(0, 0, 1) {
+		if git.shouldStop {
+			return fmt.Errorf("operation cancelled")
+		}
+
+		if err := processSingleDay(git, current); err != nil {
+			return fmt.Errorf("failed to process date %s: %w", current.Format(shortDateFormat), err)
+		}
+
+		dayCount++
+		// Push commits every 10 days
+		if dayCount%10 == 0 {
+			if err := git.pushCommits(); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Final push
+	return git.pushCommits()
+}
+
+func processSingleDay(git *GitOperations, date time.Time) error {
 	if shouldSkipDay(date) {
-		log.Printf("Skipping weekend day: %s", date.Format(shortDateFormat))
+		git.logger.Info("Skipping day", "date", date.Format(shortDateFormat))
 		return nil
 	}
 
-	dailyCommits := rand.Intn(16)
-	if isWeekend(date) {
-		dailyCommits = rand.Intn(4)
-	}
-
-	if dailyCommits > 5 && flipCoin() {
-		dailyCommits /= 2
-	}
-
-	commitTimes := generateCommitTimes(date, dailyCommits)
-
+	commitTimes := generateCommitTimes(date)
 	for _, commitTime := range commitTimes {
-		select {
-		case <-ctx.Done():
-			log.Println("Context cancelled, stopping commits")
-			return ctx.Err()
-		default:
-			content := commitTime.Format(dateFormat)
-			log.Printf("Writing commit content to file: %s", content)
-			if err := os.WriteFile(filename, []byte(content+"\n"), 0644); err != nil {
-				log.Printf("Error writing to file %s: %v", filename, err)
-				continue
-			}
-			if err := commitChanges(filename, commitTime); err != nil {
-				log.Printf("Error during commit process: %v", err)
-			}
-			if err := os.Remove(filename); err != nil {
-				log.Printf("Error removing file %s: %v", filename, err)
-			}
+		if git.shouldStop {
+			return fmt.Errorf("operation cancelled")
 		}
-	}
 
-	log.Printf("Performed %d commits on %s", len(commitTimes), date.Format(shortDateFormat))
-	return nil
-}
-
-func writeCommits(ctx context.Context, startDate, endDate time.Time) error {
-	log.Printf("Switching to main branch")
-	if _, err := runCommand("git", "switch", "main"); err != nil {
-		log.Printf("Error during git switch: %v", err)
-		return err
-	}
-	log.Printf("Resetting main branch to dev")
-	if _, err := runCommand("git", "reset", "--hard", "dev"); err != nil {
-		log.Printf("Error during git reset: %v", err)
-		return err
-	}
-	log.Printf("Pushing changes with --force")
-	if _, err := runCommand("git", "push", "--force"); err != nil {
-		log.Printf("Error during git push --force: %v", err)
-		return err
-	}
-
-	dayCounter := 0
-	for startDate.Before(endDate) || startDate.Equal(endDate) {
-		select {
-		case <-ctx.Done():
-			log.Println("Context cancelled, stopping writeCommits")
-			return ctx.Err()
-		default:
-			if err := performDailyCommits(ctx, startDate, filename); err != nil {
-				return err
-			}
-			startDate = startDate.AddDate(0, 0, 1)
-			dayCounter++
-			// Push commits every 10 days
-			if dayCounter%10 == 0 {
-				if err := pushCommits(); err != nil {
-					return err
-				}
-			}
-		}
-	}
-
-	// Final push to ensure all commits are pushed
-	if err := pushCommits(); err != nil {
-		return err
-	}
-	log.Println("Finished processing all dates. Exiting gracefully.")
-	return nil
-}
-
-func catchUp(ctx context.Context) error {
-	log.Println("Catching up with commits")
-	lastCommitDate, _, err := getLastCommitInfo("main")
-	if err != nil {
-		log.Printf("Error retrieving last commit date from main: %v", err)
-		return err
-	}
-	startDate, err := parseDate(lastCommitDate)
-	if err != nil {
-		log.Printf("Error parsing last commit date: %v", err)
-		return err
-	}
-	endDate := time.Now().AddDate(0, 0, 1)
-	return writeCommits(ctx, startDate, endDate)
-}
-
-// Signal handling
-
-func handleInterrupt(cancel context.CancelFunc) {
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt)
-	go func() {
-		<-sigChan
-		log.Println("Received SIGINT (Ctrl+C). Exiting gracefully...")
-		cancel()
-	}()
-}
-
-// Ensure we are on the main branch before running any git operations
-func ensureMainBranch() error {
-	currentBranch, err := runCommand("git", "rev-parse", "--abbrev-ref", "HEAD")
-	if err != nil {
-		return err
-	}
-	if currentBranch != "main" {
-		log.Printf("Current branch is %s, switching to main", currentBranch)
-		if _, err := runCommand("git", "switch", "main"); err != nil {
+		if err := processCommit(git, commitTime); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// Utility functions for date parsing and formatting
+func processCommit(git *GitOperations, commitTime time.Time) error {
+	content := commitTime.Format(dateFormat)
 
-func parseDate(dateStr string) (time.Time, error) {
-	return time.Parse(shortDateFormat, dateStr)
+	if err := os.WriteFile(filename, []byte(content+"\n"), 0644); err != nil {
+		return fmt.Errorf("failed to write file: %w", err)
+	}
+
+	if err := git.commitChanges(filename, commitTime); err != nil {
+		return err
+	}
+
+	if err := os.Remove(filename); err != nil {
+		git.logger.Warn("Failed to remove file", "filename", filename, "error", err)
+	}
+
+	return nil
 }
 
-func formatDate(date time.Time) string {
-	return date.Format(shortDateFormat)
+// Helper functions
+func shouldSkipDay(date time.Time) bool {
+	if isWeekend(date) {
+		// Existing weekend logic: 50% chance to skip
+		return !flipCoin()
+	}
+	// Weekday logic: 12.5% chance to skip
+	return shouldSkipWeekday()
 }
 
-// Main process
+func isWeekend(date time.Time) bool {
+	weekday := date.Weekday()
+	return weekday == time.Saturday || weekday == time.Sunday
+}
 
-func main() {
-	startDateStr := flag.String("start", "", "Start date for the commits (format: YYYY-MM-DD)")
-	endDateStr := flag.String("end", "", "End date for the commits (format: YYYY-MM-DD)")
-	flag.Parse()
+func shouldSkipWeekday() bool {
+	// Flip three coins; skip if all three are true
+	return flipCoin() && flipCoin() && flipCoin()
+	// Alternatively, use probability directly:
+	// return rand.Float64() < skipWeekdayChance
+}
 
-	// Set default values if flags are not provided
+func flipCoin() bool {
+	return rand.Intn(2) == 0
+}
+
+func generateCommitTimes(date time.Time) []time.Time {
+	var dailyCommits int
+	if isWeekend(date) {
+		dailyCommits = rand.Intn(
+			weekendCommitLimit + 1,
+		) // rand.Intn is exclusive of the upper bound
+	} else {
+		dailyCommits = rand.Intn(weekdayCommitLimit + 1)
+	}
+
+	if dailyCommits > 5 && flipCoin() {
+		dailyCommits /= commitReductionFactor
+	}
+
+	var commitTimes []time.Time
+	for i := 0; i < dailyCommits; i++ {
+		hour := rand.Intn(
+			commitTimeEndHour-commitTimeStartHour+1,
+		) + commitTimeStartHour // Between 9 and 22
+		minute := rand.Intn(60)
+		second := rand.Intn(60)
+		commitTime := time.Date(
+			date.Year(),
+			date.Month(),
+			date.Day(),
+			hour,
+			minute,
+			second,
+			0,
+			date.Location(),
+		)
+		commitTimes = append(commitTimes, commitTime)
+	}
+
+	// Sort commit times to ensure chronological order
+	sort.Slice(commitTimes, func(i, j int) bool {
+		return commitTimes[i].Before(commitTimes[j])
+	})
+
+	return commitTimes
+}
+
+func getRandomMessage() string {
+	return weightedCommitMessages[rand.Intn(len(weightedCommitMessages))]
+}
+
+func parseDateRange(startStr, endStr string) (time.Time, time.Time, error) {
 	var startDate, endDate time.Time
 	var err error
-	if *startDateStr == "" {
-		startDate = time.Now().AddDate(0, 0, -371) // 53 weeks ago
+
+	if startStr == "" {
+		startDate = time.Now().AddDate(0, 0, defaultStartDaysAgo) // Start from 371 days ago
 	} else {
-		startDate, err = parseDate(*startDateStr)
+		startDate, err = time.Parse(shortDateFormat, startStr)
 		if err != nil {
-			log.Fatalf("Invalid start date format: %v", err)
+			return time.Time{}, time.Time{}, fmt.Errorf("invalid start date: %w", err)
 		}
 	}
-	if *endDateStr == "" {
+
+	if endStr == "" {
 		endDate = time.Now()
 	} else {
-		endDate, err = parseDate(*endDateStr)
+		endDate, err = time.Parse(shortDateFormat, endStr)
 		if err != nil {
-			log.Fatalf("Invalid end date format: %v", err)
+			return time.Time{}, time.Time{}, fmt.Errorf("invalid end date: %w", err)
 		}
 	}
 
 	if startDate.After(endDate) {
-		log.Fatalf("Start date cannot be after end date")
+		return time.Time{}, time.Time{}, fmt.Errorf("start date cannot be after end date")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	return startDate, endDate, nil
+}
 
-	handleInterrupt(cancel)
+func main() {
+	startDateStr := flag.String("start", "", "Start date (YYYY-MM-DD)")
+	endDateStr := flag.String("end", "", "End date (YYYY-MM-DD)")
+	flag.Parse()
 
-	if err := ensureMainBranch(); err != nil {
-		log.Fatalf("Failed to ensure main branch: %v", err)
-	}
+	// Initialize a new logger with a text handler
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		AddSource: true,
+		Level:     slog.LevelInfo,
+	}))
+	git := NewGitOperations(logger)
 
-	sameMessages, err := compareLastCommitMessages()
+	// Handle interrupt signal
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
+	go func() {
+		<-sigChan
+		logger.Info("Received interrupt signal. Shutting down...")
+		git.shouldStop = true
+	}()
+
+	startDate, endDate, err := parseDateRange(*startDateStr, *endDateStr)
 	if err != nil {
-		log.Fatalf("Failed to compare last commit messages: %v", err)
+		logger.Error("Failed to parse dates", "error", err)
+		os.Exit(1)
 	}
 
-	if sameMessages {
-		if err := writeCommits(ctx, startDate, endDate); err != nil {
-			log.Fatalf("Failed to write commits: %v", err)
-		}
-	} else {
-		if err := catchUp(ctx); err != nil {
-			log.Fatalf("Failed to catch up: %v", err)
-		}
+	if err := processDateRange(git, startDate, endDate); err != nil {
+		logger.Error("Failed to process commits", "error", err)
+		os.Exit(1)
 	}
 
-	log.Println("Program exited gracefully.")
+	logger.Info("Successfully completed all operations")
 }

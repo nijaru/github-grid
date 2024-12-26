@@ -362,9 +362,31 @@ func getRandomMessage() string {
 	return weightedCommitMessages[rand.Intn(len(weightedCommitMessages))]
 }
 
+func normalizeDateString(date string) string {
+	if date == "" {
+		return date
+	}
+
+	parts := strings.Split(date, "-")
+	if len(parts) != 3 {
+		return date
+	}
+
+	// Pad year, month, and day with zeros if needed
+	year := parts[0]
+	month := fmt.Sprintf("%02s", parts[1])
+	day := fmt.Sprintf("%02s", parts[2])
+
+	return fmt.Sprintf("%s-%s-%s", year, month, day)
+}
+
 func parseDateRange(git *GitOperations, startStr, endStr string) (time.Time, time.Time, error) {
 	var startDate, endDate time.Time
 	var err error
+
+	// Normalize the date strings
+	startStr = normalizeDateString(startStr)
+	endStr = normalizeDateString(endStr)
 
 	// Determine the end date
 	if endStr == "" {

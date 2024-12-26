@@ -14,18 +14,29 @@ import (
 )
 
 const (
-	dateFormat            = "2006-01-02 15:04:05 -0700"
-	shortDateFormat       = "2006-01-02"
-	filename              = "edit.txt"
-	maxRetries            = 3
-	defaultStartDaysAgo   = -371
+	// Date formats
+	dateFormat      = "2006-01-02 15:04:05 -0700"
+	shortDateFormat = "2006-01-02"
+
+	// File settings
+	filename = "edit.txt"
+
+	// Operation settings
+	maxRetries          = 3
+	defaultStartDaysAgo = -371
+
+	// Commit time settings
 	commitTimeStartHour   = 9
 	commitTimeEndHour     = 22
 	commitReductionFactor = 2
-	skipWeekdayChance     = 1.0 / 8.0 // 12.5%
 
-	weekendCommitLimit = 4  // Maximum commits on weekends
-	weekdayCommitLimit = 16 // Maximum commits on weekdays
+	// Skip chances
+	skipWeekdayChance = 1.0 / 8.0 // 12.5%
+	skipWeekendChance = 1.0 / 6.0 // 16.67%
+
+	// Commit limits
+	weekendCommitLimit = 4
+	weekdayCommitLimit = 16
 )
 
 type CommitMessage struct {
@@ -56,7 +67,6 @@ var commitMessages = []CommitMessage{
 var weightedCommitMessages []string
 
 func init() {
-	rand.Seed(time.Now().UnixNano())
 	for _, cm := range commitMessages {
 		for i := 0; i < cm.Weight; i++ {
 			weightedCommitMessages = append(weightedCommitMessages, cm.Message)
@@ -293,27 +303,14 @@ func processCommit(git *GitOperations, commitTime time.Time) error {
 // Helper functions
 func shouldSkipDay(date time.Time) bool {
 	if isWeekend(date) {
-		// Existing weekend logic: 50% chance to skip
-		return !flipCoin()
+		return rand.Float64() < skipWeekendChance
 	}
-	// Weekday logic: 12.5% chance to skip
-	return shouldSkipWeekday()
+	return rand.Float64() < skipWeekdayChance
 }
 
 func isWeekend(date time.Time) bool {
 	weekday := date.Weekday()
 	return weekday == time.Saturday || weekday == time.Sunday
-}
-
-func shouldSkipWeekday() bool {
-	// Flip three coins; skip if all three are true
-	return flipCoin() && flipCoin() && flipCoin()
-	// Alternatively, use probability directly:
-	// return rand.Float64() < skipWeekdayChance
-}
-
-func flipCoin() bool {
-	return rand.Intn(2) == 0
 }
 
 func generateCommitTimes(date time.Time) []time.Time {
@@ -326,7 +323,7 @@ func generateCommitTimes(date time.Time) []time.Time {
 		dailyCommits = rand.Intn(weekdayCommitLimit + 1)
 	}
 
-	if dailyCommits > 5 && flipCoin() {
+	if dailyCommits > 5 && rand.Float64() < 0.5 {
 		dailyCommits /= commitReductionFactor
 	}
 

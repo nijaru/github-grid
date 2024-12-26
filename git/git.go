@@ -4,11 +4,16 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"math/rand"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
+
+	"math/rand"
+	"sort"
+	"errors"
+
+	"github.com/nijaru/github-grid/dateutil"
 )
 
 // Constants related to Git operations
@@ -45,26 +50,55 @@ var commitMessages = []CommitMessage{
 	{"[AutoGen] Update the Azure config", 1},
 }
 
-var weightedCommitMessages []string
+// WeightedRandomSelector handles weighted random selections
+type WeightedRandomSelector struct {
+	messages          []CommitMessage
+	cumulativeWeights []int
+	totalWeight       int
+}
+
+// NewWeightedRandomSelector initializes a new WeightedRandomSelector
+func NewWeightedRandomSelector(messages []CommitMessage) *WeightedRandomSelector {
+	cumulative := make([]int, len(messages))
+	currentSum := 0
+	for i, cm := range messages {
+		currentSum += cm.Weight
+		cumulative[i] = currentSum
+	}
+	return &WeightedRandomSelector{
+		messages:          messages,
+		cumulativeWeights: cumulative,
+		totalWeight:       currentSum,
+	}
+}
+
+// SelectRandom selects a random message based on weights
+func (w *WeightedRandomSelector) SelectRandom() string {
+	if w.totalWeight == 0 {
+		return "Default commit message"
+	}
+	r := rand.Intn(w.totalWeight) + 1
+	index := sort.Search(len(w.cumulativeWeights), func(i int) bool {
+		return w.cumulativeWeights[i] >= r
+	})
+	if index < len(w.messages) {
+		return w.messages[index].Message
+	}
+	return "Default commit message"
+}
 
 // GitOperations encapsulates Git-related functionalities
 type GitOperations struct {
-	logger *slog.Logger
+	logger   *slog.Logger
+	selector *WeightedRandomSelector
 }
 
 // NewGitOperations creates a new instance of GitOperations
 func NewGitOperations(logger *slog.Logger) *GitOperations {
+	selector := NewWeightedRandomSelector(commitMessages)
 	return &GitOperations{
-		logger: logger,
-	}
-}
-
-// Initialize the weighted commit messages
-func init() {
-	for _, cm := range commitMessages {
-		for i := 0; i < cm.Weight; i++ {
-			weightedCommitMessages = append(weightedCommitMessages, cm.Message)
-		}
+		logger:   logger,
+		selector: selector,
 	}
 }
 
@@ -116,11 +150,19 @@ func (g *GitOperations) RetryOperation(description string, operation func() erro
 	return fmt.Errorf("operation %s failed after %d attempts", description, maxRetries)
 }
 
+// Helper function for standardized error messages
+func wrapError(context string, err error) error {
+	return fmt.Errorf("%s: %w", context, err)
+}
+
 // EnsureGitRepository checks if the current directory is a Git repository
 func (g *GitOperations) EnsureGitRepository(ctx context.Context) error {
 	_, err := g.RunCommand(ctx, "git", "rev-parse", "--is-inside-work-tree")
 	if err != nil {
-		return fmt.Errorf("not a git repository: %w", err)
+		if errors.Is(err, os.ErrNotExist) {
+			return wrapError("ensure git repository: git not installed", err)
+		}
+		return wrapError("ensure git repository: not a git repository", err)
 	}
 	return nil
 }
@@ -129,7 +171,7 @@ func (g *GitOperations) EnsureGitRepository(ctx context.Context) error {
 func (g *GitOperations) EnsureMainBranch(ctx context.Context) error {
 	currentBranch, err := g.RunCommand(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
-		return fmt.Errorf("failed to get current branch: %w", err)
+		return wrapError("ensure main branch: failed to get current branch", err)
 	}
 
 	if currentBranch != "main" {
@@ -139,7 +181,7 @@ func (g *GitOperations) EnsureMainBranch(ctx context.Context) error {
 			return err
 		})
 		if err != nil {
-			return fmt.Errorf("failed to switch to main branch: %w", err)
+			return wrapError("ensure main branch: failed to switch to main branch", err)
 		}
 	}
 	return nil
@@ -177,7 +219,7 @@ func (g *GitOperations) CommitChanges(ctx context.Context, commitTime time.Time)
 	}
 
 	formattedDate := commitTime.Format(dateFormat)
-	commitMsg := GetRandomMessage()
+	commitMsg := g.GetRandomMessage()
 
 	return g.RetryOperation("commit changes", func() error {
 		if _, err := g.RunCommand(ctx, "git", "add", filename); err != nil {
@@ -216,12 +258,109 @@ func (g *GitOperations) PushCommits(ctx context.Context) error {
 	})
 }
 
-// GetRandomMessage selects a random commit message based on weights
-func GetRandomMessage() string {
-	return weightedCommitMessages[rand.Intn(len(weightedCommitMessages))]
+// GetRandomMessage selects a random commit message using the selector
+func (g *GitOperations) GetRandomMessage() string {
+	return g.selector.SelectRandom()
 }
 
 // Logger returns the logger instance
 func (g *GitOperations) Logger() *slog.Logger {
 	return g.logger
+}
+
+// writeCommitFile handles writing commit information to a file
+func (g *GitOperations) writeCommitFile(commitTime time.Time) error {
+	content := commitTime.Format(dateFormat)
+	content += fmt.Sprintf(" ts=%d", commitTime.UnixNano())
+
+	if _, err := os.Stat(filename); err == nil {
+		g.logger.Warn("File already exists, overwriting", "filename", filename)
+	}
+
+	return os.WriteFile(filename, []byte(content+"\n"), 0644)
+}
+
+// cleanupCommitFile removes the commit file after committing
+func (g *GitOperations) cleanupCommitFile() {
+	if err := os.Remove(filename); err != nil {
+		g.logger.Warn("Failed to remove file", "filename", filename, "error", err)
+	}
+}
+
+// processCommit orchestrates the commit process for a single commit time
+func (g *GitOperations) processCommit(ctx context.Context, commitTime time.Time) error {
+	if err := g.writeCommitFile(commitTime); err != nil {
+		return fmt.Errorf("failed to write commit file: %w", err)
+	}
+
+	if err := g.CommitChanges(ctx, commitTime); err != nil { // Directly call CommitChanges
+		return err
+	}
+
+	g.cleanupCommitFile()
+	return nil
+}
+
+// processSingleDay processes all commits for a single day
+func (g *GitOperations) processSingleDay(ctx context.Context, date time.Time, lastCommitTime *time.Time) error {
+	if dateutil.ShouldSkipDay(date) {
+		g.logger.Info("Skipping day", "date", date.Format(shortDateFormat))
+		return nil
+	}
+
+	commitTimes := dateutil.GenerateCommitTimes(date)
+	for _, commitTime := range commitTimes {
+		// Ensure commitTime is after lastCommitTime
+		if commitTime.Before(*lastCommitTime) || commitTime.Equal(*lastCommitTime) {
+			commitTime = commitTime.Add(time.Nanosecond)
+		}
+		*lastCommitTime = commitTime
+
+		if err := g.processCommit(ctx, commitTime); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ProcessDateRange handles the range of dates for committing
+func (g *GitOperations) ProcessDateRange(
+	ctx context.Context,
+	startDate, endDate time.Time,
+) error {
+	if err := g.EnsureGitRepository(ctx); err != nil {
+		return err
+	}
+
+	if err := g.EnsureMainBranch(ctx); err != nil {
+		return err
+	}
+
+	dayCount := 0
+	lastCommitTime := time.Time{}
+	for current := startDate; !current.After(endDate); current = current.AddDate(0, 0, 1) {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("operation cancelled")
+		default:
+			if err := g.processSingleDay(ctx, current, &lastCommitTime); err != nil {
+				return fmt.Errorf(
+					"failed to process date %s: %w",
+					current.Format(shortDateFormat),
+					err,
+				)
+			}
+
+			dayCount++
+			// Push commits every 10 days
+			if dayCount%10 == 0 {
+				if err := g.PushCommits(ctx); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	// Final push
+	return g.PushCommits(ctx)
 }

@@ -12,8 +12,8 @@ const (
 	commitTimeEndHour     = 20
 	commitReductionFactor = 2
 
-	skipWeekdayChance = 1.0 / 10.0 // 10%
-	skipWeekendChance = 1.0 / 5.0  // 20%
+	skipWeekdayChance = 1.5 / 10.0 // 15%
+	skipWeekendChance = 1.0 / 3.0  // 33.33%
 
 	weekendCommitLimit = 8  // Maximum commits on weekends
 	weekdayCommitLimit = 20 // Maximum commits on weekdays

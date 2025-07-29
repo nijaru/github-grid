@@ -39,31 +39,31 @@ pub enum IntensityLevel {
 impl IntensityLevel {
     fn get_weekday_range(&self) -> (u32, u32) {
         match self {
-            IntensityLevel::Casual => (0, 2),      // Very light
-            IntensityLevel::Active => (6, 15),     // Moderate
-            IntensityLevel::Maintainer => (12, 35), // Heavy
-            IntensityLevel::Hyperactive => (25, 65), // Very heavy
-            IntensityLevel::Extreme => (45, 95),   // Extreme
+            IntensityLevel::Casual => (0, 5),        // Often zero, max 5
+            IntensityLevel::Active => (0, 15),       // Varied activity
+            IntensityLevel::Maintainer => (2, 25),   // Regular but varied
+            IntensityLevel::Hyperactive => (5, 45),  // Heavy but realistic
+            IntensityLevel::Extreme => (10, 80),     // Still human
         }
     }
     
     fn get_weekend_range(&self) -> (u32, u32) {
         match self {
-            IntensityLevel::Casual => (1, 4),      // Light weekends
-            IntensityLevel::Active => (3, 8),      // Some weekend work
-            IntensityLevel::Maintainer => (5, 15), // Regular weekend work
-            IntensityLevel::Hyperactive => (15, 35), // Active weekends
-            IntensityLevel::Extreme => (30, 65),   // High weekend activity
+            IntensityLevel::Casual => (0, 3),       // Rarely work weekends
+            IntensityLevel::Active => (0, 5),       // Occasional weekend
+            IntensityLevel::Maintainer => (0, 10),  // Sometimes on call
+            IntensityLevel::Hyperactive => (0, 20), // Startup life
+            IntensityLevel::Extreme => (2, 35),     // Always on
         }
     }
     
     fn get_work_probability(&self) -> f64 {
         match self {
-            IntensityLevel::Casual => 0.25,      // Work ~2 days/week
-            IntensityLevel::Active => 0.85,      // Work most days
-            IntensityLevel::Maintainer => 0.92,  // Almost always working
-            IntensityLevel::Hyperactive => 0.95, // Always working
-            IntensityLevel::Extreme => 0.98,     // Nearly always
+            IntensityLevel::Casual => 0.15,      // Work 1-2 days/week
+            IntensityLevel::Active => 0.65,      // Work 4-5 days/week  
+            IntensityLevel::Maintainer => 0.75,  // Work most weekdays
+            IntensityLevel::Hyperactive => 0.85, // Almost daily
+            IntensityLevel::Extreme => 0.92,     // Rarely take breaks
         }
     }
 }
@@ -101,10 +101,10 @@ impl PatternConfig {
         Self {
             intensity: IntensityLevel::Casual,
             use_weekly_rhythm: false, // Casual devs work irregularly
-            vacation_frequency: 0.0,  // No formal vacations
+            vacation_frequency: 0.02, // Occasional breaks
             vacation_duration: (0, 0),
-            spike_probability: 0.02,  // Rare burst days
-            spike_multiplier: 2.0,
+            spike_probability: 0.08,  // Occasional burst days
+            spike_multiplier: 2.5,
         }
     }
     
@@ -112,10 +112,10 @@ impl PatternConfig {
         Self {
             intensity: IntensityLevel::Active,
             use_weekly_rhythm: true,
-            vacation_frequency: 0.01, // Occasional breaks
-            vacation_duration: (2, 5),
-            spike_probability: 0.05,
-            spike_multiplier: 1.8,
+            vacation_frequency: 0.03, // Regular breaks
+            vacation_duration: (2, 7),
+            spike_probability: 0.12,  // Regular feature days
+            spike_multiplier: 2.0,
         }
     }
     
@@ -123,10 +123,10 @@ impl PatternConfig {
         Self {
             intensity: IntensityLevel::Maintainer,
             use_weekly_rhythm: true,
-            vacation_frequency: 0.015, // Regular breaks needed
-            vacation_duration: (3, 7),
-            spike_probability: 0.1,    // PR review days
-            spike_multiplier: 1.5,
+            vacation_frequency: 0.04,  // Frequent breaks
+            vacation_duration: (3, 10),
+            spike_probability: 0.15,   // Frequent busy days
+            spike_multiplier: 1.8,
         }
     }
     
@@ -134,10 +134,10 @@ impl PatternConfig {
         Self {
             intensity: IntensityLevel::Hyperactive,
             use_weekly_rhythm: true,
-            vacation_frequency: 0.008, // Rare breaks
-            vacation_duration: (1, 4),
-            spike_probability: 0.15,   // Frequent coding sessions
-            spike_multiplier: 1.6,
+            vacation_frequency: 0.025, // Still takes breaks
+            vacation_duration: (2, 5),
+            spike_probability: 0.20,   // Many marathon sessions
+            spike_multiplier: 2.2,
         }
     }
     
@@ -145,10 +145,10 @@ impl PatternConfig {
         Self {
             intensity: IntensityLevel::Extreme,
             use_weekly_rhythm: true,
-            vacation_frequency: 0.01,  // Burnout prevention
-            vacation_duration: (1, 3),
-            spike_probability: 0.2,    // Very frequent sessions
-            spike_multiplier: 1.4,
+            vacation_frequency: 0.02,  // Burnout prevention
+            vacation_duration: (1, 4),
+            spike_probability: 0.25,   // Constant sprints
+            spike_multiplier: 2.5,
         }
     }
 }
@@ -205,16 +205,22 @@ impl ConfigurablePattern {
         let base_probability = self.config.intensity.get_work_probability();
         let is_weekend = matches!(date.weekday(), Weekday::Sat | Weekday::Sun);
         
-        // Adjust probability for casual pattern (weekend preference)
-        let mut probability = match self.config.intensity {
-            IntensityLevel::Casual if is_weekend => base_probability * 1.6,
-            IntensityLevel::Casual if !is_weekend => base_probability * 0.6,
-            _ => base_probability,
+        // Significantly reduce weekend work for all patterns
+        let mut probability = if is_weekend {
+            match self.config.intensity {
+                IntensityLevel::Casual => 0.05,      // 5% chance
+                IntensityLevel::Active => 0.15,      // 15% chance
+                IntensityLevel::Maintainer => 0.25,  // 25% chance
+                IntensityLevel::Hyperactive => 0.35, // 35% chance
+                IntensityLevel::Extreme => 0.50,     // 50% chance
+            }
+        } else {
+            base_probability
         };
         
-        // Add slight randomization to avoid exact work patterns (±2%)
-        let variation = rng.random_range(-0.02..=0.02);
-        probability = (probability + variation).clamp(0.05, 0.99);
+        // Add more randomization to create natural variance (±10%)
+        let variation = rng.random_range(-0.1..=0.1);
+        probability = (probability + variation).clamp(0.0, 1.0);
         
         rng.random::<f64>() < probability
     }
@@ -236,14 +242,27 @@ impl ConfigurablePattern {
             commits = (commits as f64 * multiplier) as u32;
         }
         
-        // Apply spike days with slight randomization
+        // Apply spike days with more dramatic effect
         if rng.random::<f64>() < self.config.spike_probability {
-            let spike_variation = rng.random_range(-0.1..=0.2); // ±10% to +20% variation
-            let multiplier = f64::max(self.config.spike_multiplier + spike_variation, 1.0);
+            let spike_variation = rng.random_range(0.5..=1.5); // 50% to 150% extra
+            let multiplier = self.config.spike_multiplier + spike_variation;
             commits = (commits as f64 * multiplier) as u32;
+            // Cap spikes at reasonable levels
+            commits = commits.min(match self.config.intensity {
+                IntensityLevel::Casual => 15,
+                IntensityLevel::Active => 40,
+                IntensityLevel::Maintainer => 60,
+                IntensityLevel::Hyperactive => 100,
+                IntensityLevel::Extreme => 150,
+            });
         }
         
-        commits.max(1) // Ensure at least 1 commit if working
+        // Allow zero commits sometimes even on "work" days
+        if commits == 0 && rng.random::<f64>() < 0.3 {
+            0  // 30% chance of zero commits even when "working"
+        } else {
+            commits.max(1)
+        }
     }
 }
 

@@ -11,7 +11,7 @@ mod git_ops;
 mod github;
 mod error;
 
-use patterns::{Pattern, CommitInfo, RealisticPattern, SteadyPattern, SporadicPattern, ContractorPattern, CasualPattern, ActivePattern, MaintainerPattern, HyperactivePattern, ExtremePattern};
+use patterns::{Pattern, CommitInfo, RealisticPattern, SteadyPattern, SporadicPattern, ContractorPattern, CasualPattern, ActivePattern, MaintainerPattern, HyperactivePattern, ExtremePattern, PatternConfig, IntensityLevel, ConfigurablePattern};
 use git_ops::*;
 use github::GitHubClient;
 use error::{GitHubGridError, Result};
@@ -31,6 +31,10 @@ struct Cli {
     /// End date (YYYY-MM-DD)
     #[arg(long)]
     end: Option<String>,
+    
+    /// Target total commits for the year (overrides pattern)
+    #[arg(long)]
+    target_total: Option<u32>,
     
     /// Pattern to use
     #[arg(short, long, default_value = "realistic")]
@@ -110,10 +114,35 @@ fn main() -> Result<()> {
     let (start_date, end_date) = determine_date_range(&mut git_ops, cli.start, cli.end)?;
     
     println!("Generating commits from {} to {}", start_date, end_date);
-    println!("Pattern: {}", cli.pattern);
     
-    let pattern = create_pattern(&cli.pattern)?;
-    let commits = pattern.generate(start_date, end_date);
+    let (_pattern_name, commits) = if let Some(target_total) = cli.target_total {
+        // Target-based generation
+        let current_year = start_date.year();
+        let existing_commits = count_existing_commits(&git_ops, current_year)?;
+        let commits_needed = target_total.saturating_sub(existing_commits);
+        let days_in_range = (end_date - start_date).num_days() + 1;
+        
+        println!("🎯 Target: {} commits total for {}", target_total, current_year);
+        println!("📊 Existing: {} commits", existing_commits);
+        println!("➕ Generating: ~{} commits over {} days", commits_needed, days_in_range);
+        
+        if commits_needed == 0 {
+            println!("✅ Target already reached!");
+            return Ok(());
+        }
+        
+        let config = calibrate_pattern_for_target(commits_needed, days_in_range);
+        let pattern_impl = ConfigurablePattern::new(config);
+        let commits = pattern_impl.generate(start_date, end_date);
+        
+        (format!("target-{}", target_total), commits)
+    } else {
+        // Traditional pattern-based generation
+        println!("Pattern: {}", cli.pattern);
+        let pattern = create_pattern(&cli.pattern)?;
+        let commits = pattern.generate(start_date, end_date);
+        (cli.pattern.clone(), commits)
+    };
     
     println!("Generated {} commits", commits.len());
     
@@ -403,4 +432,73 @@ fn initialize_repo(repo: &Repository, local_path: &str) -> Result<()> {
     git_ops.push_commits()?;
     
     Ok(())
+}
+
+fn count_existing_commits(git_ops: &GitOperations, year: i32) -> Result<u32> {
+    let repo_path = git_ops.repo().workdir().unwrap();
+    let output = std::process::Command::new("git")
+        .current_dir(repo_path)
+        .args(&[
+            "log",
+            "--oneline",
+            &format!("--since={}-01-01", year),
+            &format!("--until={}-12-31", year),
+        ])
+        .output()
+        .map_err(|e| GitHubGridError::Io(e))?;
+    
+    if !output.status.success() {
+        return Ok(0); // Empty repo or no commits in range
+    }
+    
+    let commit_lines = String::from_utf8_lossy(&output.stdout);
+    let count = commit_lines.lines().count() as u32;
+    
+    Ok(count)
+}
+
+fn calibrate_pattern_for_target(commits_needed: u32, days_in_range: i64) -> PatternConfig {
+    let avg_per_day = commits_needed as f64 / days_in_range as f64;
+    
+    // Choose intensity level based on required daily average
+    // Add ~20% buffer since we want to get close, not exact
+    let target_avg = avg_per_day * 1.2;
+    
+    let intensity = if target_avg < 5.0 {
+        IntensityLevel::Casual
+    } else if target_avg < 15.0 {
+        IntensityLevel::Active  
+    } else if target_avg < 30.0 {
+        IntensityLevel::Maintainer
+    } else if target_avg < 50.0 {
+        IntensityLevel::Hyperactive
+    } else {
+        IntensityLevel::Extreme
+    };
+    
+    // Create pattern config with enhanced variance for target hitting
+    let vacation_freq = match intensity {
+        IntensityLevel::Casual => 0.03,
+        IntensityLevel::Active => 0.02,
+        IntensityLevel::Maintainer => 0.015,
+        IntensityLevel::Hyperactive => 0.01,
+        IntensityLevel::Extreme => 0.008,
+    };
+    
+    let spike_prob = match intensity {
+        IntensityLevel::Casual => 0.20,
+        IntensityLevel::Active => 0.25,
+        IntensityLevel::Maintainer => 0.30,
+        IntensityLevel::Hyperactive => 0.35,
+        IntensityLevel::Extreme => 0.40,
+    };
+    
+    PatternConfig {
+        intensity,
+        use_weekly_rhythm: true,
+        vacation_frequency: vacation_freq,
+        vacation_duration: (1, 4),
+        spike_probability: spike_prob,
+        spike_multiplier: 2.5,
+    }
 }

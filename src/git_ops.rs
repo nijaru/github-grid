@@ -12,6 +12,10 @@ impl GitOperations {
         Self { repo }
     }
     
+    pub fn repo(&self) -> &Repository {
+        &self.repo
+    }
+    
     pub fn get_latest_autogen_commit(&mut self) -> Result<Option<DateTime<Local>>> {
         let mut revwalk = self.repo.revwalk()?;
         revwalk.push_head()?;

@@ -164,7 +164,7 @@ fn show_patterns() {
     println!("  active      - Multiple projects, good practices (~2,500/year)");
     println!("  maintainer  - Managing repos, reviewing PRs (~5,000/year)");
     println!("  hyperactive - Startup pace, heavy open source (~12,000/year)");
-    println!("  extreme     - Your level: 50-100+ commits/day (~20,000+/year)");
+    println!("  extreme     - AI-assisted development (~20,000+/year)");
     println!("\nLegacy patterns:");
     println!("  steady      - Consistent daily activity");
     println!("  sporadic    - Irregular bursts of activity");

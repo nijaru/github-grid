@@ -457,6 +457,7 @@ fn count_existing_commits(git_ops: &GitOperations, year: i32) -> Result<u32> {
     Ok(count)
 }
 
+
 fn calibrate_pattern_for_target(commits_needed: u32, days_in_range: i64) -> PatternConfig {
     let avg_per_day = commits_needed as f64 / days_in_range as f64;
     
@@ -477,12 +478,13 @@ fn calibrate_pattern_for_target(commits_needed: u32, days_in_range: i64) -> Patt
     };
     
     // Create pattern config with enhanced variance for target hitting
+    // More realistic vacation frequencies
     let vacation_freq = match intensity {
-        IntensityLevel::Casual => 0.03,
-        IntensityLevel::Active => 0.02,
-        IntensityLevel::Maintainer => 0.015,
-        IntensityLevel::Hyperactive => 0.01,
-        IntensityLevel::Extreme => 0.008,
+        IntensityLevel::Casual => 0.05,     // More time off
+        IntensityLevel::Active => 0.035,    // Regular breaks
+        IntensityLevel::Maintainer => 0.025, // Still needs breaks
+        IntensityLevel::Hyperactive => 0.02,  // Less but still important
+        IntensityLevel::Extreme => 0.015,    // Rare but necessary
     };
     
     // Enhanced spike probability for more realistic patterns
@@ -498,7 +500,7 @@ fn calibrate_pattern_for_target(commits_needed: u32, days_in_range: i64) -> Patt
         intensity,
         use_weekly_rhythm: true,
         vacation_frequency: vacation_freq,
-        vacation_duration: (1, 4),
+        vacation_duration: (2, 8),  // Longer, more realistic breaks
         spike_probability: spike_prob,
         spike_multiplier: 2.8,  // Higher spikes for more realistic deadline/feature patterns
     }

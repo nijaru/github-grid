@@ -201,9 +201,39 @@ impl ConfigurablePattern {
         Self { config }
     }
     
+    fn is_holiday_period(&self, date: NaiveDate) -> bool {
+        let month = date.month();
+        let day = date.day();
+        
+        match (month, day) {
+            // New Year's period
+            (1, 1..=3) => true,
+            (12, 31) => true,
+            
+            // Christmas/Winter holidays (Dec 20 - Jan 5)  
+            (12, 20..=31) => true,
+            (1, 1..=5) => true,
+            
+            // US Thanksgiving week
+            (11, 22..=29) => true,
+            
+            // July 4th weekend
+            (7, 3..=5) => true,
+            
+            // Memorial Day weekend (last Monday of May)
+            (5, 25..=31) if matches!(date.weekday(), Weekday::Sat | Weekday::Sun | Weekday::Mon) => true,
+            
+            // Labor Day weekend (first Monday of September)
+            (9, 1..=7) if matches!(date.weekday(), Weekday::Sat | Weekday::Sun | Weekday::Mon) => true,
+            
+            _ => false,
+        }
+    }
+    
     fn should_work_today(&self, date: NaiveDate, rng: &mut ChaCha8Rng, worked_yesterday: bool, days_since_work: u32) -> bool {
         let base_probability = self.config.intensity.get_work_probability();
         let is_weekend = matches!(date.weekday(), Weekday::Sat | Weekday::Sun);
+        let is_holiday = self.is_holiday_period(date);
         
         // Base weekend/weekday probability
         let mut probability = if is_weekend {
@@ -217,6 +247,11 @@ impl ConfigurablePattern {
         } else {
             base_probability
         };
+        
+        // Holiday period - significantly reduce work probability
+        if is_holiday {
+            probability *= 0.3; // 70% reduction during holidays
+        }
         
         // Streak bonus - if worked yesterday, much higher chance today
         if worked_yesterday && !is_weekend {

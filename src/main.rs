@@ -298,15 +298,14 @@ fn init_github_repo(
     // Check if repo exists on GitHub
     let repo_exists = github.repo_exists(&repo_name)?;
     
-    // Remove local directory first if using --force
-    if force && PathBuf::from(&local_path).exists() {
-        fs::remove_dir_all(&local_path)?;
-        println!("🗑️  Removed local directory");
-    }
-    
     if repo_exists {
         if force {
             println!("⚠️  Repository exists, deleting due to --force flag...");
+            // Remove local directory first to avoid clone conflicts
+            if PathBuf::from(&local_path).exists() {
+                fs::remove_dir_all(&local_path)?;
+                println!("🗑️  Removed local directory");
+            }
             github.delete_repo(&repo_name)?;
         } else {
             println!("✅ Repository already exists: https://github.com/{}/{}", username, repo_name);

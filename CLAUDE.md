@@ -77,44 +77,30 @@ cargo clippy         # Lint checks
    - Subcommands: `patterns`, `preview`
    - Comprehensive error handling with `Result<T, E>`
 
-### Pattern Features
+### Key Features
 
-- **Target-Based Generation**: Automatically counts existing commits and generates appropriate patterns to reach yearly goals
-- **Streak Logic**: Work streaks create momentum (80% boost for weekday continuation, prevents long gaps)
-- **Project Phases**: 15% quiet weeks (0.6x activity), 25% intense weeks (1.5x activity)
-- **Enhanced Spike Days**: 15-40% probability with 2.5-3.2x multipliers for realistic deadline pressure
-- **Realistic Breaks**: 1-4% daily vacation probability with 1-10 day durations
-- **Weekend Reduction**: 5-50% weekend work probability (varies by intensity level)
-- **Time Distribution**: Work hours (9-19), extended hours for sporadic pattern
-- **Weekend Logic**: Pattern-specific weekend work probability (10-30%)
-- **Commit Messages**: 20 realistic [AutoGen] prefixed messages with variety
+- **Target-Based Generation**: `--target-total` counts existing commits and calibrates patterns
+- **Configurable Patterns**: Intensity levels with realistic variance (streaks, spikes, breaks)
+- **Deterministic RNG**: ChaCha8Rng seeded by date for consistent results
 
-### Performance Optimizations
+### Performance Notes
 
-- Batches commits (500 per push for optimal performance)
-- Native git2 for commits, shell git push for authentication 
-- Single-pass commit generation with sorted timestamps
-- Progress tracking with minimal UI updates
+- 500 commits per push batch
+- Native git2 for commit creation, shell commands for push  
+- Single-pass generation with timestamp sorting
 
-## Important Behaviors
+## Important Implementation Details
 
-- **Repository Defaults**: Automatically uses ~/github/username-grid if no --repo specified
-- **Target-Based Generation**: `--target-total` counts existing commits and calibrates patterns to reach yearly goals
-- **Intelligent Calibration**: Automatically selects appropriate intensity based on required commit frequency
-- **Continuation Logic**: Automatically continues from last [AutoGen] commit if no --start specified
-- **Branch Management**: Always operates on `main` branch, switches automatically
-- **Error Recovery**: Proper error propagation, no silent failures
-- **Signal Handling**: Context-aware cancellation (Ctrl+C support)
-- **Timestamp Precision**: Nanosecond-precise timestamps to avoid collisions
-- **Author Configuration**: Reads from global git config for proper commit attribution
+- **Default Repository**: `~/github/username-grid` (dynamically determined)
+- **Commit Attribution**: Uses global git config for author name/email
+- **Batch Operations**: 500 commits per push for optimal performance
+- **Branch Management**: Always operates on `main` branch
+- **Authentication**: Uses `gh` CLI credentials via shell git commands
 
 ## Dependencies
 
-Key external crates:
-- `git2` - Native Git operations  
-- `clap` - CLI argument parsing
-- `chrono` - Date/time handling
-- `rand` - Pattern randomization (v0.9 with Rust 2024 compatibility)
-- `rand_chacha` - Deterministic RNG for consistent pattern generation
+- `git2` - Git operations
+- `clap` - CLI parsing
+- `chrono` - Date/time handling  
+- `rand` + `rand_chacha` - Deterministic randomization
 - `indicatif` - Progress bars
-- `ratatui` - Future TUI enhancements

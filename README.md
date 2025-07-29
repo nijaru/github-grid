@@ -94,7 +94,7 @@ gh auth status
 
 The `--target-total` option automatically:
 - Counts existing commits in your repository
-- Calculates how many more commits are needed
+- Calculates how many more commits are needed  
 - Selects appropriate intensity and patterns
 - Accounts for your actual activity when generating historical data
 

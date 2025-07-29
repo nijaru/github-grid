@@ -319,6 +319,14 @@ fn init_github_repo(
             } else {
                 println!("📥 Cloning existing repository...");
                 github.clone_repo(&repo_name, &local_path)?;
+                
+                // Check if repo needs initialization (empty repo)
+                let repo = Repository::open(&local_path)?;
+                if repo.is_empty()? {
+                    println!("🔧 Repository is empty, initializing...");
+                    initialize_repo(&repo, &local_path)?;
+                }
+                
                 println!("🎯 Ready to use: --repo {}", local_path);
                 return Ok(());
             }

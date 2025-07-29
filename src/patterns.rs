@@ -14,7 +14,15 @@ pub trait Pattern {
 
 // Deterministic RNG seeded by date for consistent results
 fn date_rng(date: NaiveDate) -> ChaCha8Rng {
-    let seed = date.num_days_from_ce() as u64;
+    // Add microsecond entropy to vary between runs while keeping dates consistent
+    let base_seed = date.num_days_from_ce() as u64;
+    let time_entropy = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .subsec_micros() as u64;
+    
+    // Mix seeds so same dates still cluster similarly but with run variation
+    let seed = base_seed.wrapping_mul(1000000) + (time_entropy % 1000);
     ChaCha8Rng::seed_from_u64(seed)
 }
 
@@ -60,9 +68,9 @@ impl IntensityLevel {
     }
 }
 
-// Weekly rhythm multipliers (realistic work patterns)
-fn get_weekly_multiplier(weekday: Weekday) -> f64 {
-    match weekday {
+// Weekly rhythm multipliers (realistic work patterns with slight randomization)
+fn get_weekly_multiplier(weekday: Weekday, rng: &mut ChaCha8Rng) -> f64 {
+    let base = match weekday {
         Weekday::Mon => 0.7,  // Monday blues
         Weekday::Tue => 1.1,  // Peak productivity
         Weekday::Wed => 1.1,  // Peak productivity
@@ -70,7 +78,11 @@ fn get_weekly_multiplier(weekday: Weekday) -> f64 {
         Weekday::Fri => 0.8,  // Winding down
         Weekday::Sat => 0.6,  // Lighter weekends
         Weekday::Sun => 0.6,  // Lighter weekends
-    }
+    };
+    
+    // Add ±5% randomization to avoid exact patterns
+    let variation = rng.random_range(-0.05..=0.05);
+    f64::max(base + variation, 0.1) // Ensure positive multiplier
 }
 
 // Configuration for pattern generation
@@ -194,11 +206,15 @@ impl ConfigurablePattern {
         let is_weekend = matches!(date.weekday(), Weekday::Sat | Weekday::Sun);
         
         // Adjust probability for casual pattern (weekend preference)
-        let probability = match self.config.intensity {
+        let mut probability = match self.config.intensity {
             IntensityLevel::Casual if is_weekend => base_probability * 1.6,
             IntensityLevel::Casual if !is_weekend => base_probability * 0.6,
             _ => base_probability,
         };
+        
+        // Add slight randomization to avoid exact work patterns (±2%)
+        let variation = rng.random_range(-0.02..=0.02);
+        probability = (probability + variation).clamp(0.05, 0.99);
         
         rng.random::<f64>() < probability
     }
@@ -216,13 +232,15 @@ impl ConfigurablePattern {
         
         // Apply weekly rhythm if enabled
         if self.config.use_weekly_rhythm {
-            let multiplier = get_weekly_multiplier(date.weekday());
+            let multiplier = get_weekly_multiplier(date.weekday(), rng);
             commits = (commits as f64 * multiplier) as u32;
         }
         
-        // Apply spike days
+        // Apply spike days with slight randomization
         if rng.random::<f64>() < self.config.spike_probability {
-            commits = (commits as f64 * self.config.spike_multiplier) as u32;
+            let spike_variation = rng.random_range(-0.1..=0.2); // ±10% to +20% variation
+            let multiplier = f64::max(self.config.spike_multiplier + spike_variation, 1.0);
+            commits = (commits as f64 * multiplier) as u32;
         }
         
         commits.max(1) // Ensure at least 1 commit if working

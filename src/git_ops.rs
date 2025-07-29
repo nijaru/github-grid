@@ -1,6 +1,5 @@
 use chrono::{DateTime, Local};
-use git2::{Repository, Signature, Time, Oid, RemoteCallbacks, PushOptions, Cred};
-use std::env;
+use git2::{Repository, Signature, Time, Oid};
 use crate::patterns::CommitInfo;
 use crate::error::Result;
 
@@ -84,41 +83,21 @@ impl GitOperations {
     }
     
     pub fn push_commits(&mut self) -> Result<()> {
-        let mut remote = self.repo.find_remote("origin")?;
-        let mut callbacks = RemoteCallbacks::new();
+        let repo_path = self.repo.workdir().unwrap();
         
-        // Try to get credentials in order of preference
-        callbacks.credentials(|_url, username_from_url, _allowed_types| {
-            // Try GitHub token first
-            if let Ok(token) = env::var("GITHUB_TOKEN") {
-                return Cred::userpass_plaintext(
-                    username_from_url.unwrap_or("git"),
-                    &token
-                );
-            }
+        let output = std::process::Command::new("git")
+            .current_dir(repo_path)
+            .args(&["push", "origin", "main"])
+            .output()
+            .map_err(|e| crate::error::GitHubGridError::Io(e))?;
             
-            // Try gh CLI token
-            if let Ok(output) = std::process::Command::new("gh")
-                .args(&["auth", "token"])
-                .output() 
-            {
-                if output.status.success() {
-                    let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                    return Cred::userpass_plaintext(
-                        username_from_url.unwrap_or("git"),
-                        &token
-                    );
-                }
-            }
-            
-            // Fallback to SSH key
-            Cred::ssh_key_from_agent(username_from_url.unwrap_or("git"))
-        });
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(crate::error::GitHubGridError::Repository(
+                format!("Git push failed: {}", stderr)
+            ));
+        }
         
-        let mut opts = PushOptions::new();
-        opts.remote_callbacks(callbacks);
-        
-        remote.push(&["refs/heads/main:refs/heads/main"], Some(&mut opts))?;
         Ok(())
     }
     

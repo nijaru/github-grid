@@ -38,18 +38,21 @@ gh auth login
 ./target/release/github-grid --repo ~/github-grid-target --pattern realistic
 
 # 3. Preview patterns before committing
-./target/release/github-grid --repo ~/github-grid-target --dry-run
+./target/release/github-grid --dry-run
 ```
 
 ### Basic Usage
 ```bash
-# Generate commits with realistic pattern (from last AutoGen commit to today)
-./target/release/github-grid --repo ~/github-grid-target
+# Generate commits with realistic pattern (defaults to ~/github/username-grid)
+./target/release/github-grid
 
 # Preview before committing
-./target/release/github-grid --repo ~/github-grid-target --dry-run
+./target/release/github-grid --dry-run
 
-# Work on any external repository
+# Use a specific pattern
+./target/release/github-grid --pattern active
+
+# Work on a specific repository
 ./target/release/github-grid --repo ~/my-project
 ```
 
@@ -71,11 +74,11 @@ gh auth status
 ### Advanced Usage
 ```bash
 # Generate commits for specific date range
-./target/release/github-grid --repo ~/github-grid-target --start 2024-01-01 --end 2024-12-31
+./target/release/github-grid --start 2024-01-01 --end 2024-12-31
 
 # Use different patterns
-./target/release/github-grid --repo ~/github-grid-target --pattern contractor
-./target/release/github-grid --repo ~/github-grid-target --pattern sporadic
+./target/release/github-grid --pattern contractor
+./target/release/github-grid --pattern sporadic --dry-run
 
 # Preview different patterns
 ./target/release/github-grid preview --start 2024-01-01 --end 2024-01-07 --pattern realistic

@@ -302,7 +302,7 @@ fn init_github_repo(
     let repo_name = name.unwrap_or_else(|| format!("{}-grid", username));
     println!("📂 Repository name: {}", repo_name);
     
-    // Determine local directory (default: ~/github/nijaru-grid)
+    // Determine local directory (default: ~/github/repo-name)
     let home_dir = env::var("HOME").unwrap_or_else(|_| ".".to_string());
     let local_path = local_dir.unwrap_or_else(|| format!("{}/github/{}", home_dir, repo_name));
     println!("💾 Local directory: {}", local_path);
@@ -373,7 +373,7 @@ fn initialize_repo(repo: &Repository, local_path: &str) -> Result<()> {
     let repo_path = PathBuf::from(local_path);
     
     // Create initial README
-    let readme_content = "# GitHub Contribution Grid\n\nThis repository contains generated commit patterns for GitHub contribution graphs.\nGenerated using [github-grid](https://github.com/nijaru/github-grid).\n";
+    let readme_content = "# GitHub Contribution Grid\n\nThis repository contains generated commit patterns for GitHub contribution graphs.\n";
     fs::write(repo_path.join("README.md"), readme_content)?;
     
     // Stage the README

@@ -28,11 +28,14 @@ cargo clippy         # Lint checks
 # Preview pattern without committing  
 ./target/debug/github-grid preview --start 2024-01-01 --end 2024-01-07 --pattern realistic
 
-# Dry run on current repo
+# Dry run (defaults to ~/github/username-grid)
 ./target/debug/github-grid --dry-run
 
-# Run on external repository
-./target/debug/github-grid --repo /path/to/target/repo
+# Run with specific pattern
+./target/debug/github-grid --pattern active
+
+# Run on specific repository
+./target/debug/github-grid --repo /path/to/custom/repo
 ```
 
 ## Architecture
@@ -51,6 +54,9 @@ cargo clippy         # Lint checks
    - Date-seeded `ChaCha8Rng` for consistent results across runs
    - Shared weekly multipliers: Monday blues (0.7x), Tue-Thu peaks (1.1x), Friday wind-down (0.8x)
    - Activity-level patterns: casual (~300/yr), active (~2,500/yr), maintainer (~5,000/yr), hyperactive (~12,000/yr), extreme (~20,000+/yr)
+   - Enhanced variance: 0-80 commits/day range, 30% chance of zero commits even on work days
+   - Realistic weekend work: 5-50% chance depending on intensity level
+   - Natural breaks: 2-4% daily vacation probability with 1-10 day durations
    - Legacy pattern wrappers for backward compatibility
    - Zero code duplication - all patterns use shared `ConfigurablePattern` core
 
@@ -70,7 +76,9 @@ cargo clippy         # Lint checks
 
 ### Pattern Features
 
-- **Realistic Pattern**: 14-day sprints, 3-10 day vacations, 5% spike day probability
+- **All Patterns**: Enhanced with natural variance, realistic breaks, and spike days
+- **Spike Days**: 8-25% probability with 2.0-2.5x multipliers for burst activity
+- **Vacation System**: Regular breaks (2-4% daily chance) lasting 1-10 days
 - **Time Distribution**: Work hours (9-19), extended hours for sporadic pattern
 - **Weekend Logic**: Pattern-specific weekend work probability (10-30%)
 - **Commit Messages**: 20 realistic [AutoGen] prefixed messages with variety
@@ -84,7 +92,7 @@ cargo clippy         # Lint checks
 
 ## Important Behaviors
 
-- **Repository Isolation**: Designed to run separately with `--repo` flag targeting external repos
+- **Repository Defaults**: Automatically uses ~/github/username-grid if no --repo specified
 - **Continuation Logic**: Automatically continues from last [AutoGen] commit if no --start specified
 - **Branch Management**: Always operates on `main` branch, switches automatically
 - **Error Recovery**: Proper error propagation, no silent failures

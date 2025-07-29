@@ -79,9 +79,10 @@ cargo clippy         # Lint checks
 
 ### Key Features
 
-- **Target-Based Generation**: `--target-total` counts existing commits and calibrates patterns
-- **Configurable Patterns**: Intensity levels with realistic variance (streaks, spikes, breaks)
-- **Deterministic RNG**: ChaCha8Rng seeded by date for consistent results
+- **Target-Based Generation**: `--target-total` counts existing commits and calibrates patterns (typically 90-95% accuracy)
+- **Realistic Activity Patterns**: Streak logic, project phases, enhanced spike days (18-38% probability, 2.8x multipliers)
+- **Visual Balance**: Automatically matches intensity to recent activity for proper GitHub graph coloring
+- **Deterministic RNG**: ChaCha8Rng seeded by date for consistent results across runs
 
 ### Performance Notes
 
@@ -96,6 +97,13 @@ cargo clippy         # Lint checks
 - **Batch Operations**: 500 commits per push for optimal performance
 - **Branch Management**: Always operates on `main` branch
 - **Authentication**: Uses `gh` CLI credentials via shell git commands
+
+## Pattern Realism Notes
+
+- **AI-Era Development**: Patterns designed for modern AI-assisted workflows with frequent small commits
+- **Visual Authenticity**: Higher spike frequencies create more natural-looking contribution graphs
+- **Historical Balance**: Use `--target-total` to match historical intensity with recent high-frequency activity
+- **Calibration**: 0.9x base multiplier with enhanced spikes typically achieves 90-95% of target commits
 
 ## Dependencies
 

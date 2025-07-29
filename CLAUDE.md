@@ -28,7 +28,10 @@ cargo clippy         # Lint checks
 # Preview pattern without committing  
 ./target/debug/github-grid preview --start 2024-01-01 --end 2024-01-07 --pattern realistic
 
-# Dry run (defaults to ~/github/username-grid)
+# Target-based generation (recommended)
+./target/debug/github-grid --target-total 5000
+
+# Dry run (defaults to ~/github/username-grid)  
 ./target/debug/github-grid --dry-run
 
 # Run with specific pattern
@@ -76,16 +79,19 @@ cargo clippy         # Lint checks
 
 ### Pattern Features
 
-- **All Patterns**: Enhanced with natural variance, realistic breaks, and spike days
-- **Spike Days**: 8-25% probability with 2.0-2.5x multipliers for burst activity
-- **Vacation System**: Regular breaks (2-4% daily chance) lasting 1-10 days
+- **Target-Based Generation**: Automatically counts existing commits and generates appropriate patterns to reach yearly goals
+- **Streak Logic**: Work streaks create momentum (80% boost for weekday continuation, prevents long gaps)
+- **Project Phases**: 15% quiet weeks (0.6x activity), 25% intense weeks (1.5x activity)
+- **Enhanced Spike Days**: 15-40% probability with 2.5-3.2x multipliers for realistic deadline pressure
+- **Realistic Breaks**: 1-4% daily vacation probability with 1-10 day durations
+- **Weekend Reduction**: 5-50% weekend work probability (varies by intensity level)
 - **Time Distribution**: Work hours (9-19), extended hours for sporadic pattern
 - **Weekend Logic**: Pattern-specific weekend work probability (10-30%)
 - **Commit Messages**: 20 realistic [AutoGen] prefixed messages with variety
 
 ### Performance Optimizations
 
-- Batches commits (50 per push vs original 10)
+- Batches commits (500 per push for optimal performance)
 - Native git2 for commits, shell git push for authentication 
 - Single-pass commit generation with sorted timestamps
 - Progress tracking with minimal UI updates
@@ -93,6 +99,8 @@ cargo clippy         # Lint checks
 ## Important Behaviors
 
 - **Repository Defaults**: Automatically uses ~/github/username-grid if no --repo specified
+- **Target-Based Generation**: `--target-total` counts existing commits and calibrates patterns to reach yearly goals
+- **Intelligent Calibration**: Automatically selects appropriate intensity based on required commit frequency
 - **Continuation Logic**: Automatically continues from last [AutoGen] commit if no --start specified
 - **Branch Management**: Always operates on `main` branch, switches automatically
 - **Error Recovery**: Proper error propagation, no silent failures

@@ -49,6 +49,9 @@ gh auth login
 # Preview before committing
 ./target/release/github-grid --dry-run
 
+# Target specific yearly commit total (recommended)
+./target/release/github-grid --target-total 5000
+
 # Use a specific pattern
 ./target/release/github-grid --pattern active
 
@@ -73,10 +76,13 @@ gh auth status
 
 ### Advanced Usage
 ```bash
-# Generate commits for specific date range
-./target/release/github-grid --start 2024-01-01 --end 2024-12-31
+# Target commits with specific date range
+./target/release/github-grid --target-total 4000 --start 2024-01-01 --end 2024-06-30
 
-# Use different patterns
+# Preview before generating
+./target/release/github-grid --target-total 5000 --dry-run
+
+# Use different patterns (if not using target-total)
 ./target/release/github-grid --pattern contractor
 ./target/release/github-grid --pattern sporadic --dry-run
 
@@ -84,14 +90,30 @@ gh auth status
 ./target/release/github-grid preview --start 2024-01-01 --end 2024-01-07 --pattern realistic
 ```
 
-### Available Patterns
+### Target-Based Generation (Recommended)
 
-**Activity Levels (recommended):**
+The `--target-total` option automatically:
+- Counts existing commits in your repository
+- Calculates how many more commits are needed
+- Selects appropriate intensity and patterns
+- Accounts for your actual activity when generating historical data
+
+```bash
+# Common yearly targets
+./target/release/github-grid --target-total 2000   # Light activity
+./target/release/github-grid --target-total 4000   # Active developer  
+./target/release/github-grid --target-total 6000   # Heavy contributor
+./target/release/github-grid --target-total 10000  # Very active
+```
+
+### Manual Patterns (Alternative)
+
+**Activity Levels:**
 - **casual** - Weekend warrior, occasional PRs (~300 commits/year)
 - **active** - Multiple projects, good practices (~2,500 commits/year)  
 - **maintainer** - Managing repos, reviewing PRs (~5,000 commits/year)
 - **hyperactive** - Startup pace, heavy open source (~12,000 commits/year)
-- **extreme** - Your level: 50-100+ commits/day (~20,000+ commits/year)
+- **extreme** - AI-assisted development (~20,000+ commits/year)
 
 **Legacy Patterns:**
 - **realistic** - Professional developer activity with sprints and vacations

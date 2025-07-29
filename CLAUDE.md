@@ -55,9 +55,9 @@ cargo clippy         # Lint checks
    - Zero code duplication - all patterns use shared `ConfigurablePattern` core
 
 2. **Git Operations** (`src/git_ops.rs`)
-   - Uses `git2` crate for native Git operations (no shell exec)
+   - Uses `git2` crate for commit creation, shell command for push (better auth compatibility)
    - `GitOperations::create_commit()` - Creates commits with backdated timestamps
-   - `GitOperations::push_commits()` - Batches pushes (50 commits per batch)
+   - `GitOperations::push_commits()` - Uses simple git push command for authentication
    - `GitOperations::get_latest_autogen_commit()` - Finds last [AutoGen] commit for continuation
    - Automatically switches to main branch and validates repo state
 
@@ -78,7 +78,7 @@ cargo clippy         # Lint checks
 ### Performance Optimizations
 
 - Batches commits (50 per push vs original 10)
-- Native git2 operations (no shell overhead) 
+- Native git2 for commits, shell git push for authentication 
 - Single-pass commit generation with sorted timestamps
 - Progress tracking with minimal UI updates
 
@@ -90,6 +90,7 @@ cargo clippy         # Lint checks
 - **Error Recovery**: Proper error propagation, no silent failures
 - **Signal Handling**: Context-aware cancellation (Ctrl+C support)
 - **Timestamp Precision**: Nanosecond-precise timestamps to avoid collisions
+- **Author Configuration**: Reads from global git config for proper commit attribution
 
 ## Dependencies
 

@@ -83,19 +83,28 @@ gh auth status
 
 ### Available Patterns
 
-- **realistic** - Natural developer activity with sprints, vacations, and spike days
-- **steady** - Consistent daily activity with minor variations  
+**Activity Levels (recommended):**
+- **casual** - Weekend warrior, occasional PRs (~300 commits/year)
+- **active** - Multiple projects, good practices (~2,500 commits/year)  
+- **maintainer** - Managing repos, reviewing PRs (~5,000 commits/year)
+- **hyperactive** - Startup pace, heavy open source (~12,000 commits/year)
+- **extreme** - Your level: 50-100+ commits/day (~20,000+ commits/year)
+
+**Legacy Patterns:**
+- **realistic** - Professional developer activity with sprints and vacations
+- **steady** - Consistent daily activity with minimal variation
 - **sporadic** - Irregular bursts of activity with quiet periods
 - **contractor** - Monday-Friday focused with occasional weekend work
 
 ## Pattern Features
 
-### Realistic Pattern
-- 14-day sprint cycles with intensity bursts at start/end
-- Random vacation periods (3-10 days) 
-- Spike days with 10-30+ commits for big features
-- 30% chance of weekend work (1-3 commits)
-- Work hours: 9 AM - 7 PM
+### Activity-Level Patterns
+- **Deterministic randomness** - Same dates always generate same commits
+- **Weekly rhythms** - Monday blues, Tue-Thu peaks, Friday wind-down
+- **Realistic rest patterns** - Weekends lighter, occasional breaks/vacations
+- **Spike days** - Marathon coding sessions and feature pushes
+- **Smart work probability** - More realistic than 365 days/year
+- **Configurable intensity** - Each level targets specific annual commit ranges
 
 ### Preview Example
 ```
@@ -117,10 +126,11 @@ Summary:
 
 1. **Setup**: `init` command creates a private GitHub repository and clones it locally
 2. **Empty Commits**: Creates commits without files (like `git commit --allow-empty`) using git2 library
-3. **Backdated Timestamps**: All commits use realistic historical timestamps for authentic patterns
-4. **Batch Operations**: Pushes in batches of 50 commits for optimal performance
-5. **Smart Continuation**: Automatically detects last `[AutoGen]` commit to seamlessly continue patterns
-6. **Pattern Generation**: Uses sophisticated algorithms for realistic developer activity simulation
+3. **Deterministic Generation**: Date-seeded RNG ensures consistent results across runs
+4. **Realistic Patterns**: Configurable system with base intensity + weekly rhythms + vacation periods
+5. **Backdated Timestamps**: All commits use historical timestamps for authentic contribution graphs
+6. **Batch Operations**: Pushes in batches of 50 commits for optimal performance
+7. **Smart Continuation**: Automatically detects last `[AutoGen]` commit to seamlessly continue patterns
 
 ## Safety Features
 

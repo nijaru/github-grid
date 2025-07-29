@@ -1,5 +1,5 @@
 use chrono::{DateTime, Local};
-use git2::{Repository, Signature, Time, Oid, RemoteCallbacks, PushOptions, Cred, build::RepoBuilder, FetchOptions};
+use git2::{Repository, Signature, Time, Oid, RemoteCallbacks, PushOptions, Cred};
 use std::env;
 use crate::patterns::CommitInfo;
 use crate::error::Result;
@@ -136,43 +136,4 @@ impl GitOperations {
         Ok(())
     }
     
-    pub fn clone_repo(url: &str, path: &str) -> Result<Repository> {
-        let mut callbacks = RemoteCallbacks::new();
-        
-        callbacks.credentials(|_url, username_from_url, _allowed_types| {
-            // Try GitHub token first
-            if let Ok(token) = env::var("GITHUB_TOKEN") {
-                return Cred::userpass_plaintext(
-                    username_from_url.unwrap_or("git"),
-                    &token
-                );
-            }
-            
-            // Try gh CLI token
-            if let Ok(output) = std::process::Command::new("gh")
-                .args(&["auth", "token"])
-                .output() 
-            {
-                if output.status.success() {
-                    let token = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                    return Cred::userpass_plaintext(
-                        username_from_url.unwrap_or("git"),
-                        &token
-                    );
-                }
-            }
-            
-            // Fallback to SSH key
-            Cred::ssh_key_from_agent(username_from_url.unwrap_or("git"))
-        });
-        
-        let mut fetch_options = FetchOptions::new();
-        fetch_options.remote_callbacks(callbacks);
-        
-        let mut builder = RepoBuilder::new();
-        builder.fetch_options(fetch_options);
-        
-        let repo = builder.clone(url, std::path::Path::new(path))?;
-        Ok(repo)
-    }
 }

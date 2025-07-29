@@ -10,8 +10,22 @@ impl GitHubClient {
         // Check if gh CLI is available and authenticated
         Self::check_gh_cli()?;
         
+        // Temporarily set git protocol to https for token auth if needed
+        let original_protocol = Self::get_git_protocol().unwrap_or_else(|_| "ssh".to_string());
+        let changed_protocol = if original_protocol != "https" {
+            Self::set_git_protocol("https")?;
+            true
+        } else {
+            false
+        };
+        
         // Get username
         let username = Self::get_github_username()?;
+        
+        // Restore original protocol if we changed it
+        if changed_protocol {
+            Self::set_git_protocol(&original_protocol)?;
+        }
         
         Ok(Self { username })
     }
@@ -50,12 +64,28 @@ impl GitHubClient {
     }
     
     pub fn repo_exists(&self, repo_name: &str) -> Result<bool> {
+        // Temporarily set git protocol to https for token auth if needed
+        let original_protocol = Self::get_git_protocol().unwrap_or_else(|_| "ssh".to_string());
+        let changed_protocol = if original_protocol != "https" {
+            Self::set_git_protocol("https")?;
+            true
+        } else {
+            false
+        };
+        
         let output = Command::new("gh")
             .args(&["repo", "view", &format!("{}/{}", self.username, repo_name)])
             .output()
             .map_err(|_| GitHubGridError::Repository("Failed to check if repo exists".to_string()))?;
             
-        Ok(output.status.success())
+        let result = Ok(output.status.success());
+        
+        // Restore original protocol if we changed it
+        if changed_protocol {
+            Self::set_git_protocol(&original_protocol)?;
+        }
+        
+        result
     }
     
     pub fn create_repo(&self, name: &str) -> Result<String> {
@@ -95,7 +125,55 @@ impl GitHubClient {
         Ok(())
     }
     
-    pub fn clone_url(&self, repo_name: &str) -> String {
-        format!("https://github.com/{}/{}.git", self.username, repo_name)
+    
+    pub fn clone_repo(&self, repo_name: &str, local_path: &str) -> Result<()> {
+        let output = Command::new("gh")
+            .args(&["repo", "clone", &format!("{}/{}", self.username, repo_name), local_path])
+            .output()
+            .map_err(|_| GitHubGridError::Repository("Failed to clone repository".to_string()))?;
+            
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(GitHubGridError::Repository(
+                format!("Failed to clone GitHub repository: {}", stderr)
+            ));
+        }
+        
+        Ok(())
+    }
+    
+    fn get_git_protocol() -> Result<String> {
+        let output = Command::new("gh")
+            .args(&["config", "get", "git_protocol"])
+            .output()
+            .map_err(|_| GitHubGridError::Repository("Failed to get git protocol".to_string()))?;
+            
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        } else {
+            // Default to ssh if not set
+            Ok("ssh".to_string())
+        }
+    }
+    
+    fn set_git_protocol(protocol: &str) -> Result<()> {
+        let output = Command::new("gh")
+            .args(&["config", "set", "git_protocol", protocol])
+            .output()
+            .map_err(|_| GitHubGridError::Repository("Failed to set git protocol".to_string()))?;
+            
+        if !output.status.success() {
+            return Err(GitHubGridError::Repository(
+                format!("Failed to set git protocol to {}", protocol)
+            ));
+        }
+        
+        // Also run setup-git to apply the change
+        Command::new("gh")
+            .args(&["auth", "setup-git"])
+            .output()
+            .map_err(|_| GitHubGridError::Repository("Failed to setup git auth".to_string()))?;
+            
+        Ok(())
     }
 }

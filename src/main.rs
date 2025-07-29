@@ -11,7 +11,7 @@ mod git_ops;
 mod github;
 mod error;
 
-use patterns::*;
+use patterns::{Pattern, CommitInfo, RealisticPattern, SteadyPattern, SporadicPattern, ContractorPattern, CasualPattern, ActivePattern, MaintainerPattern, HyperactivePattern, ExtremePattern};
 use git_ops::*;
 use github::GitHubClient;
 use error::{GitHubGridError, Result};
@@ -117,7 +117,14 @@ fn main() -> Result<()> {
 
 fn show_patterns() {
     println!("Available patterns:");
-    println!("  realistic   - Realistic developer activity with sprints and breaks");
+    println!("\nActivity levels (commits/year):");
+    println!("  casual      - Weekend warrior, occasional PRs (~300/year)");
+    println!("  realistic   - Professional developer activity (~1,200/year)");
+    println!("  active      - Multiple projects, good practices (~2,500/year)");
+    println!("  maintainer  - Managing repos, reviewing PRs (~5,000/year)");
+    println!("  hyperactive - Startup pace, heavy open source (~12,000/year)");
+    println!("  extreme     - Your level: 50-100+ commits/day (~20,000+/year)");
+    println!("\nLegacy patterns:");
     println!("  steady      - Consistent daily activity");
     println!("  sporadic    - Irregular bursts of activity");
     println!("  contractor  - Mon-Fri focused with occasional weekends");
@@ -214,10 +221,17 @@ fn determine_date_range(
 
 fn create_pattern(name: &str) -> Result<Box<dyn Pattern>> {
     match name {
+        // Legacy patterns
         "realistic" => Ok(Box::new(RealisticPattern::new())),
         "steady" => Ok(Box::new(SteadyPattern::new())),
         "sporadic" => Ok(Box::new(SporadicPattern::new())),
         "contractor" => Ok(Box::new(ContractorPattern::new())),
+        // Activity-level patterns
+        "casual" => Ok(Box::new(CasualPattern::new())),
+        "active" => Ok(Box::new(ActivePattern::new())),
+        "maintainer" => Ok(Box::new(MaintainerPattern::new())),
+        "hyperactive" => Ok(Box::new(HyperactivePattern::new())),
+        "extreme" => Ok(Box::new(ExtremePattern::new())),
         _ => Err(GitHubGridError::Config(format!("Unknown pattern: {}", name))),
     }
 }
@@ -304,8 +318,7 @@ fn init_github_repo(
                 return Ok(());
             } else {
                 println!("📥 Cloning existing repository...");
-                let clone_url = github.clone_url(&repo_name);
-                GitOperations::clone_repo(&clone_url, &local_path)?;
+                github.clone_repo(&repo_name, &local_path)?;
                 println!("🎯 Ready to use: --repo {}", local_path);
                 return Ok(());
             }
@@ -314,11 +327,12 @@ fn init_github_repo(
     
     // Create new private repository
     println!("🏗️  Creating private repository...");
-    let clone_url = github.create_repo(&repo_name)?;
+    github.create_repo(&repo_name)?;
     
     // Clone the repository locally
     println!("📥 Cloning repository...");
-    let repo = GitOperations::clone_repo(&clone_url, &local_path)?;
+    github.clone_repo(&repo_name, &local_path)?;
+    let repo = Repository::open(&local_path)?;
     
     // Initialize with empty commit
     initialize_repo(&repo, &local_path)?;

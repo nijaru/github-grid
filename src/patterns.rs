@@ -1,5 +1,6 @@
 use chrono::{DateTime, Local, NaiveDate, NaiveTime, TimeZone, Weekday, Datelike};
-use rand::{rng, Rng};
+use rand::{rng, Rng, SeedableRng};
+use rand_chacha::ChaCha8Rng;
 
 #[derive(Debug, Clone)]
 pub struct CommitInfo {
@@ -9,6 +10,135 @@ pub struct CommitInfo {
 
 pub trait Pattern {
     fn generate(&self, start: NaiveDate, end: NaiveDate) -> Vec<CommitInfo>;
+}
+
+// Deterministic RNG seeded by date for consistent results
+fn date_rng(date: NaiveDate) -> ChaCha8Rng {
+    let seed = date.num_days_from_ce() as u64;
+    ChaCha8Rng::seed_from_u64(seed)
+}
+
+// Base intensity levels with ranges
+#[derive(Debug, Clone)]
+pub enum IntensityLevel {
+    Casual,      // ~300/year
+    Active,      // ~2,500/year  
+    Maintainer,  // ~5,000/year
+    Hyperactive, // ~12,000/year
+    Extreme,     // ~20,000+/year
+}
+
+impl IntensityLevel {
+    fn get_weekday_range(&self) -> (u32, u32) {
+        match self {
+            IntensityLevel::Casual => (0, 2),      // Very light
+            IntensityLevel::Active => (6, 15),     // Moderate
+            IntensityLevel::Maintainer => (12, 35), // Heavy
+            IntensityLevel::Hyperactive => (25, 65), // Very heavy
+            IntensityLevel::Extreme => (45, 95),   // Extreme
+        }
+    }
+    
+    fn get_weekend_range(&self) -> (u32, u32) {
+        match self {
+            IntensityLevel::Casual => (1, 4),      // Light weekends
+            IntensityLevel::Active => (3, 8),      // Some weekend work
+            IntensityLevel::Maintainer => (5, 15), // Regular weekend work
+            IntensityLevel::Hyperactive => (15, 35), // Active weekends
+            IntensityLevel::Extreme => (30, 65),   // High weekend activity
+        }
+    }
+    
+    fn get_work_probability(&self) -> f64 {
+        match self {
+            IntensityLevel::Casual => 0.25,      // Work ~2 days/week
+            IntensityLevel::Active => 0.85,      // Work most days
+            IntensityLevel::Maintainer => 0.92,  // Almost always working
+            IntensityLevel::Hyperactive => 0.95, // Always working
+            IntensityLevel::Extreme => 0.98,     // Nearly always
+        }
+    }
+}
+
+// Weekly rhythm multipliers (realistic work patterns)
+fn get_weekly_multiplier(weekday: Weekday) -> f64 {
+    match weekday {
+        Weekday::Mon => 0.7,  // Monday blues
+        Weekday::Tue => 1.1,  // Peak productivity
+        Weekday::Wed => 1.1,  // Peak productivity
+        Weekday::Thu => 1.1,  // Peak productivity
+        Weekday::Fri => 0.8,  // Winding down
+        Weekday::Sat => 0.6,  // Lighter weekends
+        Weekday::Sun => 0.6,  // Lighter weekends
+    }
+}
+
+// Configuration for pattern generation
+#[derive(Debug, Clone)]
+pub struct PatternConfig {
+    pub intensity: IntensityLevel,
+    pub use_weekly_rhythm: bool,
+    pub vacation_frequency: f64,    // Probability per day of starting vacation
+    pub vacation_duration: (u32, u32), // Min/max vacation days
+    pub spike_probability: f64,     // Chance of high-activity days
+    pub spike_multiplier: f64,      // Multiplier for spike days
+}
+
+impl PatternConfig {
+    pub fn casual() -> Self {
+        Self {
+            intensity: IntensityLevel::Casual,
+            use_weekly_rhythm: false, // Casual devs work irregularly
+            vacation_frequency: 0.0,  // No formal vacations
+            vacation_duration: (0, 0),
+            spike_probability: 0.02,  // Rare burst days
+            spike_multiplier: 2.0,
+        }
+    }
+    
+    pub fn active() -> Self {
+        Self {
+            intensity: IntensityLevel::Active,
+            use_weekly_rhythm: true,
+            vacation_frequency: 0.01, // Occasional breaks
+            vacation_duration: (2, 5),
+            spike_probability: 0.05,
+            spike_multiplier: 1.8,
+        }
+    }
+    
+    pub fn maintainer() -> Self {
+        Self {
+            intensity: IntensityLevel::Maintainer,
+            use_weekly_rhythm: true,
+            vacation_frequency: 0.015, // Regular breaks needed
+            vacation_duration: (3, 7),
+            spike_probability: 0.1,    // PR review days
+            spike_multiplier: 1.5,
+        }
+    }
+    
+    pub fn hyperactive() -> Self {
+        Self {
+            intensity: IntensityLevel::Hyperactive,
+            use_weekly_rhythm: true,
+            vacation_frequency: 0.008, // Rare breaks
+            vacation_duration: (1, 4),
+            spike_probability: 0.15,   // Frequent coding sessions
+            spike_multiplier: 1.6,
+        }
+    }
+    
+    pub fn extreme() -> Self {
+        Self {
+            intensity: IntensityLevel::Extreme,
+            use_weekly_rhythm: true,
+            vacation_frequency: 0.01,  // Burnout prevention
+            vacation_duration: (1, 3),
+            spike_probability: 0.2,    // Very frequent sessions
+            spike_multiplier: 1.4,
+        }
+    }
 }
 
 const COMMIT_MESSAGES: &[&str] = &[
@@ -49,73 +179,76 @@ fn create_commit_at_time(date: NaiveDate, hour: u32, minute: u32) -> CommitInfo 
     }
 }
 
-pub struct RealisticPattern {
-    sprint_length: u32,
-    vacation_probability: f64,
-    spike_probability: f64,
+// Generic pattern generator using configuration
+pub struct ConfigurablePattern {
+    config: PatternConfig,
 }
 
-impl RealisticPattern {
-    pub fn new() -> Self {
-        Self {
-            sprint_length: 14,
-            vacation_probability: 0.02, // 2% chance per day
-            spike_probability: 0.05,    // 5% chance per day
-        }
+impl ConfigurablePattern {
+    pub fn new(config: PatternConfig) -> Self {
+        Self { config }
     }
     
-    fn is_sprint_start(&self, date: NaiveDate) -> bool {
-        date.ordinal() % self.sprint_length == 1
-    }
-    
-    fn is_sprint_end(&self, date: NaiveDate) -> bool {
-        date.ordinal() % self.sprint_length == 0
-    }
-    
-    fn generate_vacation_period(&self, start: NaiveDate) -> Vec<NaiveDate> {
-        let mut rng = rng();
-        let length = rng.random_range(3..=10); // 3-10 day vacations
-        
-        (0..length)
-            .map(|i| start + chrono::Duration::days(i as i64))
-            .collect()
-    }
-    
-    fn get_base_commits_for_day(&self, date: NaiveDate) -> u32 {
-        let mut rng = rng();
+    fn should_work_today(&self, date: NaiveDate, rng: &mut ChaCha8Rng) -> bool {
+        let base_probability = self.config.intensity.get_work_probability();
         let is_weekend = matches!(date.weekday(), Weekday::Sat | Weekday::Sun);
         
-        if is_weekend {
-            // 30% chance of weekend work, usually 1-3 commits
-            if rng.random::<f64>() < 0.3 {
-                rng.random_range(1..=3)
-            } else {
-                0
-            }
+        // Adjust probability for casual pattern (weekend preference)
+        let probability = match self.config.intensity {
+            IntensityLevel::Casual if is_weekend => base_probability * 1.6,
+            IntensityLevel::Casual if !is_weekend => base_probability * 0.6,
+            _ => base_probability,
+        };
+        
+        rng.random::<f64>() < probability
+    }
+    
+    fn get_base_commits(&self, date: NaiveDate, rng: &mut ChaCha8Rng) -> u32 {
+        let is_weekend = matches!(date.weekday(), Weekday::Sat | Weekday::Sun);
+        
+        let range = if is_weekend {
+            self.config.intensity.get_weekend_range()
         } else {
-            // Weekday: 2-8 commits normally
-            rng.random_range(2..=8)
+            self.config.intensity.get_weekday_range()
+        };
+        
+        let mut commits = rng.random_range(range.0..=range.1);
+        
+        // Apply weekly rhythm if enabled
+        if self.config.use_weekly_rhythm {
+            let multiplier = get_weekly_multiplier(date.weekday());
+            commits = (commits as f64 * multiplier) as u32;
         }
+        
+        // Apply spike days
+        if rng.random::<f64>() < self.config.spike_probability {
+            commits = (commits as f64 * self.config.spike_multiplier) as u32;
+        }
+        
+        commits.max(1) // Ensure at least 1 commit if working
     }
 }
 
-impl Pattern for RealisticPattern {
+impl Pattern for ConfigurablePattern {
     fn generate(&self, start: NaiveDate, end: NaiveDate) -> Vec<CommitInfo> {
         let mut commits = Vec::new();
-        let mut rng = rng();
         let mut in_vacation = false;
         let mut vacation_end = start;
         
         let mut current = start;
         while current <= end {
-            // Check if starting vacation
-            if !in_vacation && rng.random::<f64>() < self.vacation_probability {
-                let vacation_days = self.generate_vacation_period(current);
-                vacation_end = vacation_days.last().copied().unwrap_or(current);
+            let mut rng = date_rng(current);
+            
+            // Check for vacation start
+            if !in_vacation && rng.random::<f64>() < self.config.vacation_frequency {
+                let vacation_days = rng.random_range(
+                    self.config.vacation_duration.0..=self.config.vacation_duration.1
+                );
+                vacation_end = current + chrono::Duration::days(vacation_days as i64);
                 in_vacation = true;
             }
             
-            // Skip if in vacation
+            // Skip vacation days
             if in_vacation {
                 if current >= vacation_end {
                     in_vacation = false;
@@ -124,21 +257,17 @@ impl Pattern for RealisticPattern {
                 continue;
             }
             
-            let mut day_commits = self.get_base_commits_for_day(current);
-            
-            // Sprint modifiers
-            if self.is_sprint_start(current) || self.is_sprint_end(current) {
-                day_commits = (day_commits as f64 * 1.5) as u32;
-            }
-            
-            // Random spike days
-            if rng.random::<f64>() < self.spike_probability {
-                day_commits += rng.random_range(10..=30); // Big feature day
+            // Check if working today
+            if !self.should_work_today(current, &mut rng) {
+                current = current.succ_opt().unwrap();
+                continue;
             }
             
             // Generate commits for the day
+            let day_commits = self.get_base_commits(current, &mut rng);
+            
             for _ in 0..day_commits {
-                let hour = rng.random_range(9..=19); // Work hours
+                let hour = rng.random_range(6..=23);
                 let minute = rng.random_range(0..60);
                 commits.push(create_commit_at_time(current, hour, minute));
             }
@@ -146,135 +275,199 @@ impl Pattern for RealisticPattern {
             current = current.succ_opt().unwrap();
         }
         
-        // Sort commits by date
         commits.sort_by_key(|c| c.date);
         commits
     }
 }
 
+// Wrapper patterns using the new configurable system
+pub struct RealisticPattern {
+    inner: ConfigurablePattern,
+}
+
 pub struct SteadyPattern {
-    daily_commits: std::ops::Range<u32>,
+    inner: ConfigurablePattern,
+}
+
+pub struct SporadicPattern {
+    inner: ConfigurablePattern,
+}
+
+pub struct ContractorPattern {
+    inner: ConfigurablePattern,
+}
+
+pub struct CasualPattern {
+    inner: ConfigurablePattern,
+}
+
+pub struct ActivePattern {
+    inner: ConfigurablePattern,
+}
+
+pub struct MaintainerPattern {
+    inner: ConfigurablePattern,
+}
+
+pub struct HyperactivePattern {
+    inner: ConfigurablePattern,
+}
+
+pub struct ExtremePattern {
+    inner: ConfigurablePattern,
+}
+
+// Implementation of all patterns using the new configurable system
+
+impl RealisticPattern {
+    pub fn new() -> Self {
+        Self {
+            inner: ConfigurablePattern::new(PatternConfig::active()),
+        }
+    }
+}
+
+impl Pattern for RealisticPattern {
+    fn generate(&self, start: NaiveDate, end: NaiveDate) -> Vec<CommitInfo> {
+        self.inner.generate(start, end)
+    }
 }
 
 impl SteadyPattern {
     pub fn new() -> Self {
+        // Custom config for steady pattern
+        let config = PatternConfig {
+            intensity: IntensityLevel::Active,
+            use_weekly_rhythm: false, // No weekly variation
+            vacation_frequency: 0.005, // Very rare breaks
+            vacation_duration: (1, 2),
+            spike_probability: 0.02,   // Minimal spikes
+            spike_multiplier: 1.2,     // Small spikes
+        };
         Self {
-            daily_commits: 3..7,
+            inner: ConfigurablePattern::new(config),
         }
     }
 }
 
 impl Pattern for SteadyPattern {
     fn generate(&self, start: NaiveDate, end: NaiveDate) -> Vec<CommitInfo> {
-        let mut commits = Vec::new();
-        let mut rng = rng();
-        
-        let mut current = start;
-        while current <= end {
-            let day_commits = rng.random_range(self.daily_commits.clone());
-            
-            for _ in 0..day_commits {
-                let hour = rng.random_range(8..=20);
-                let minute = rng.random_range(0..60);
-                commits.push(create_commit_at_time(current, hour, minute));
-            }
-            
-            current = current.succ_opt().unwrap();
-        }
-        
-        commits.sort_by_key(|c| c.date);
-        commits
+        self.inner.generate(start, end)
     }
-}
-
-pub struct SporadicPattern {
-    active_probability: f64,
-    burst_probability: f64,
 }
 
 impl SporadicPattern {
     pub fn new() -> Self {
+        // Custom config for sporadic pattern
+        let config = PatternConfig {
+            intensity: IntensityLevel::Active,
+            use_weekly_rhythm: false,
+            vacation_frequency: 0.02,  // Frequent breaks
+            vacation_duration: (1, 5),
+            spike_probability: 0.15,   // High spike chance
+            spike_multiplier: 3.0,     // Big spikes
+        };
         Self {
-            active_probability: 0.6, // 60% of days have commits
-            burst_probability: 0.1,  // 10% chance of burst day
+            inner: ConfigurablePattern::new(config),
         }
     }
 }
 
 impl Pattern for SporadicPattern {
     fn generate(&self, start: NaiveDate, end: NaiveDate) -> Vec<CommitInfo> {
-        let mut commits = Vec::new();
-        let mut rng = rng();
-        
-        let mut current = start;
-        while current <= end {
-            if rng.random::<f64>() < self.active_probability {
-                let day_commits = if rng.random::<f64>() < self.burst_probability {
-                    rng.random_range(15..=40) // Burst day
-                } else {
-                    rng.random_range(1..=5)   // Normal day
-                };
-                
-                for _ in 0..day_commits {
-                    let hour = rng.random_range(10..=22); // Extended hours for sporadic work
-                    let minute = rng.random_range(0..60);
-                    commits.push(create_commit_at_time(current, hour, minute));
-                }
-            }
-            
-            current = current.succ_opt().unwrap();
-        }
-        
-        commits.sort_by_key(|c| c.date);
-        commits
+        self.inner.generate(start, end)
     }
-}
-
-pub struct ContractorPattern {
-    weekend_probability: f64,
 }
 
 impl ContractorPattern {
     pub fn new() -> Self {
+        // Custom config for contractor pattern
+        let config = PatternConfig {
+            intensity: IntensityLevel::Active,
+            use_weekly_rhythm: true,   // Strong weekday focus
+            vacation_frequency: 0.008, // Regular time off
+            vacation_duration: (2, 4),
+            spike_probability: 0.08,
+            spike_multiplier: 1.4,
+        };
         Self {
-            weekend_probability: 0.1, // 10% chance of weekend work
+            inner: ConfigurablePattern::new(config),
         }
     }
 }
 
 impl Pattern for ContractorPattern {
     fn generate(&self, start: NaiveDate, end: NaiveDate) -> Vec<CommitInfo> {
-        let mut commits = Vec::new();
-        let mut rng = rng();
-        
-        let mut current = start;
-        while current <= end {
-            let is_weekend = matches!(current.weekday(), Weekday::Sat | Weekday::Sun);
-            
-            let day_commits = if is_weekend {
-                if rng.random::<f64>() < self.weekend_probability {
-                    rng.random_range(1..=4) // Light weekend work
-                } else {
-                    0
-                }
-            } else {
-                rng.random_range(4..=12) // Regular weekday work
-            };
-            
-            for _ in 0..day_commits {
-                let hour = if is_weekend {
-                    rng.random_range(10..=16) // Relaxed weekend hours
-                } else {
-                    rng.random_range(9..=17)  // Business hours
-                };
-                let minute = rng.random_range(0..60);
-                commits.push(create_commit_at_time(current, hour, minute));
-            }
-            
-            current = current.succ_opt().unwrap();
+        self.inner.generate(start, end)
+    }
+}
+
+impl CasualPattern {
+    pub fn new() -> Self {
+        Self {
+            inner: ConfigurablePattern::new(PatternConfig::casual()),
         }
-        
-        commits.sort_by_key(|c| c.date);
-        commits
+    }
+}
+
+impl Pattern for CasualPattern {
+    fn generate(&self, start: NaiveDate, end: NaiveDate) -> Vec<CommitInfo> {
+        self.inner.generate(start, end)
+    }
+}
+
+impl ActivePattern {
+    pub fn new() -> Self {
+        Self {
+            inner: ConfigurablePattern::new(PatternConfig::active()),
+        }
+    }
+}
+
+impl Pattern for ActivePattern {
+    fn generate(&self, start: NaiveDate, end: NaiveDate) -> Vec<CommitInfo> {
+        self.inner.generate(start, end)
+    }
+}
+
+impl MaintainerPattern {
+    pub fn new() -> Self {
+        Self {
+            inner: ConfigurablePattern::new(PatternConfig::maintainer()),
+        }
+    }
+}
+
+impl Pattern for MaintainerPattern {
+    fn generate(&self, start: NaiveDate, end: NaiveDate) -> Vec<CommitInfo> {
+        self.inner.generate(start, end)
+    }
+}
+
+impl HyperactivePattern {
+    pub fn new() -> Self {
+        Self {
+            inner: ConfigurablePattern::new(PatternConfig::hyperactive()),
+        }
+    }
+}
+
+impl Pattern for HyperactivePattern {
+    fn generate(&self, start: NaiveDate, end: NaiveDate) -> Vec<CommitInfo> {
+        self.inner.generate(start, end)
+    }
+}
+
+impl ExtremePattern {
+    pub fn new() -> Self {
+        Self {
+            inner: ConfigurablePattern::new(PatternConfig::extreme()),
+        }
+    }
+}
+
+impl Pattern for ExtremePattern {
+    fn generate(&self, start: NaiveDate, end: NaiveDate) -> Vec<CommitInfo> {
+        self.inner.generate(start, end)
     }
 }

@@ -372,6 +372,7 @@ dependencies = [
  "git2",
  "indicatif",
  "rand",
+ "rand_chacha",
  "ratatui",
  "serde",
  "toml",

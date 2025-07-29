@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-GitHub Grid is a Rust CLI application that generates realistic Git commit patterns for GitHub contribution graphs. It creates natural developer activity patterns including sprints, vacations, spike days, and different work styles through a trait-based pattern system.
+GitHub Grid is a Rust CLI application that generates realistic Git commit patterns for GitHub contribution graphs. It creates natural developer activity patterns with configurable intensity levels, weekly rhythms, and vacation periods using a deterministic, composable pattern system.
 
 ## Development Commands
 
@@ -44,13 +44,15 @@ cargo clippy         # Lint checks
 
 ### Key Components
 
-1. **Pattern System** (`src/patterns.rs`)
-   - `Pattern` trait for extensible commit generation strategies
-   - `RealisticPattern` - Sprint cycles, vacations, spike days
-   - `SteadyPattern` - Consistent daily activity
-   - `SporadicPattern` - Irregular bursts with quiet periods  
-   - `ContractorPattern` - Mon-Fri focused with occasional weekends
-   - Each pattern generates `CommitInfo` structs with timestamps and messages
+1. **Pattern System** (`src/patterns.rs`) - **REFACTORED 2024**
+   - `ConfigurablePattern` - Core composable pattern engine with deterministic RNG
+   - `IntensityLevel` enum - Casual, Active, Maintainer, Hyperactive, Extreme levels
+   - `PatternConfig` - Configures intensity, weekly rhythms, vacation frequency, spike probability
+   - Date-seeded `ChaCha8Rng` for consistent results across runs
+   - Shared weekly multipliers: Monday blues (0.7x), Tue-Thu peaks (1.1x), Friday wind-down (0.8x)
+   - Activity-level patterns: casual (~300/yr), active (~2,500/yr), maintainer (~5,000/yr), hyperactive (~12,000/yr), extreme (~20,000+/yr)
+   - Legacy pattern wrappers for backward compatibility
+   - Zero code duplication - all patterns use shared `ConfigurablePattern` core
 
 2. **Git Operations** (`src/git_ops.rs`)
    - Uses `git2` crate for native Git operations (no shell exec)
@@ -96,5 +98,6 @@ Key external crates:
 - `clap` - CLI argument parsing
 - `chrono` - Date/time handling
 - `rand` - Pattern randomization (v0.9 with Rust 2024 compatibility)
+- `rand_chacha` - Deterministic RNG for consistent pattern generation
 - `indicatif` - Progress bars
 - `ratatui` - Future TUI enhancements

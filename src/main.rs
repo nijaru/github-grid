@@ -260,7 +260,7 @@ fn execute_commits(
     );
     
     let mut batch_count = 0;
-    const BATCH_SIZE: usize = 50;
+    const BATCH_SIZE: usize = 100;
     
     for commit in commits {
         pb.set_message(format!("Committing {}", commit.date.format("%Y-%m-%d %H:%M")));

@@ -61,10 +61,15 @@ impl GitOperations {
             Err(_) => None,
         };
         
+        // Get user's global git config for name and email
+        let config = git2::Config::open_default()?;
+        let name = config.get_string("user.name").unwrap_or_else(|_| "GitHub Grid".to_string());
+        let email = config.get_string("user.email").unwrap_or_else(|_| "github-grid@example.com".to_string());
+        
         // Create signature with commit date
         let sig = Signature::new(
-            "GitHub Grid", 
-            "github-grid@example.com",
+            &name, 
+            &email,
             &Time::new(commit_info.date.timestamp(), 0)
         )?;
         
@@ -85,6 +90,8 @@ impl GitOperations {
     pub fn push_commits(&mut self) -> Result<()> {
         let repo_path = self.repo.workdir().unwrap();
         
+        println!("🚀 Pushing commits to GitHub...");
+        
         let output = std::process::Command::new("git")
             .current_dir(repo_path)
             .args(&["push", "origin", "main"])
@@ -96,6 +103,11 @@ impl GitOperations {
             return Err(crate::error::GitHubGridError::Repository(
                 format!("Git push failed: {}", stderr)
             ));
+        }
+        
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if !stdout.is_empty() {
+            println!("Push output: {}", stdout.trim());
         }
         
         Ok(())

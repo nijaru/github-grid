@@ -391,9 +391,9 @@ fn init_github_repo(
     println!("📁 Local: {}", local_path);
     println!();
     println!("🎯 Usage:");
+    println!("  ./target/release/github-grid --target-total 5000");
     println!("  ./target/release/github-grid --pattern active");
     println!("  ./target/release/github-grid --dry-run");
-    println!("  ./target/release/github-grid --repo {} --pattern realistic", local_path);
     
     Ok(())
 }

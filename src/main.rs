@@ -21,8 +21,8 @@ use error::{GitHubGridError, Result};
 #[command(about = "Generate realistic Git commit patterns for GitHub contribution graphs")]
 struct Cli {
     /// Target repository path
-    #[arg(short, long, default_value = ".")]
-    repo: PathBuf,
+    #[arg(short, long)]
+    repo: Option<PathBuf>,
     
     /// Start date (YYYY-MM-DD)
     #[arg(long)]
@@ -65,7 +65,7 @@ enum Commands {
         /// Force recreate if repo exists
         #[arg(long)]
         force: bool,
-        /// Local directory to clone to (defaults to ~/github-grid-target)
+        /// Local directory to clone to (defaults to ~/github/repo-name)
         #[arg(long)]
         local_dir: Option<String>,
     },
@@ -92,7 +92,19 @@ fn main() -> Result<()> {
         None => {}
     }
     
-    let repo = Repository::open(&cli.repo)?;
+    // Use default path if not specified
+    let home_dir = env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    let repo_path = match cli.repo {
+        Some(path) => path,
+        None => {
+            // Get username dynamically for default path
+            let github = GitHubClient::new()?;
+            let username = github.username();
+            PathBuf::from(format!("{}/github/{}-grid", home_dir, username))
+        }
+    };
+    
+    let repo = Repository::open(&repo_path)?;
     let mut git_ops = GitOperations::new(repo);
     
     let (start_date, end_date) = determine_date_range(&mut git_ops, cli.start, cli.end)?;
@@ -290,9 +302,9 @@ fn init_github_repo(
     let repo_name = name.unwrap_or_else(|| format!("{}-grid", username));
     println!("📂 Repository name: {}", repo_name);
     
-    // Determine local directory
+    // Determine local directory (default: ~/github/nijaru-grid)
     let home_dir = env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let local_path = local_dir.unwrap_or_else(|| format!("{}/github-grid-target", home_dir));
+    let local_path = local_dir.unwrap_or_else(|| format!("{}/github/{}", home_dir, repo_name));
     println!("💾 Local directory: {}", local_path);
     
     // Check if repo exists on GitHub
@@ -314,7 +326,7 @@ fn init_github_repo(
             // Check if local clone exists
             if PathBuf::from(&local_path).exists() {
                 println!("📁 Local clone already exists at: {}", local_path);
-                println!("🎯 Ready to use: --repo {}", local_path);
+                println!("🎯 Ready to use!");
                 return Ok(());
             } else {
                 println!("📥 Cloning existing repository...");
@@ -327,7 +339,7 @@ fn init_github_repo(
                     initialize_repo(&repo, &local_path)?;
                 }
                 
-                println!("🎯 Ready to use: --repo {}", local_path);
+                println!("🎯 Ready to use!");
                 return Ok(());
             }
         }
@@ -350,8 +362,9 @@ fn init_github_repo(
     println!("📁 Local: {}", local_path);
     println!();
     println!("🎯 Usage:");
+    println!("  ./target/release/github-grid --pattern active");
+    println!("  ./target/release/github-grid --dry-run");
     println!("  ./target/release/github-grid --repo {} --pattern realistic", local_path);
-    println!("  ./target/release/github-grid --repo {} --dry-run", local_path);
     
     Ok(())
 }

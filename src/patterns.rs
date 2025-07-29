@@ -59,11 +59,11 @@ impl IntensityLevel {
     
     fn get_work_probability(&self) -> f64 {
         match self {
-            IntensityLevel::Casual => 0.15,      // Work 1-2 days/week
-            IntensityLevel::Active => 0.65,      // Work 4-5 days/week  
-            IntensityLevel::Maintainer => 0.75,  // Work most weekdays
-            IntensityLevel::Hyperactive => 0.85, // Almost daily
-            IntensityLevel::Extreme => 0.92,     // Rarely take breaks
+            IntensityLevel::Casual => 0.25,      // Work 2-3 days/week
+            IntensityLevel::Active => 0.75,      // Work most weekdays
+            IntensityLevel::Maintainer => 0.85,  // Work almost daily
+            IntensityLevel::Hyperactive => 0.90, // Almost always working
+            IntensityLevel::Extreme => 0.95,     // Rarely take breaks
         }
     }
 }
@@ -103,8 +103,8 @@ impl PatternConfig {
             use_weekly_rhythm: false, // Casual devs work irregularly
             vacation_frequency: 0.02, // Occasional breaks
             vacation_duration: (0, 0),
-            spike_probability: 0.08,  // Occasional burst days
-            spike_multiplier: 2.5,
+            spike_probability: 0.15,  // Regular burst days
+            spike_multiplier: 3.0,
         }
     }
     
@@ -114,8 +114,8 @@ impl PatternConfig {
             use_weekly_rhythm: true,
             vacation_frequency: 0.03, // Regular breaks
             vacation_duration: (2, 7),
-            spike_probability: 0.12,  // Regular feature days
-            spike_multiplier: 2.0,
+            spike_probability: 0.20,  // Frequent feature days
+            spike_multiplier: 2.5,
         }
     }
     
@@ -125,8 +125,8 @@ impl PatternConfig {
             use_weekly_rhythm: true,
             vacation_frequency: 0.04,  // Frequent breaks
             vacation_duration: (3, 10),
-            spike_probability: 0.15,   // Frequent busy days
-            spike_multiplier: 1.8,
+            spike_probability: 0.25,   // Many busy days
+            spike_multiplier: 2.2,
         }
     }
     
@@ -136,8 +136,8 @@ impl PatternConfig {
             use_weekly_rhythm: true,
             vacation_frequency: 0.025, // Still takes breaks
             vacation_duration: (2, 5),
-            spike_probability: 0.20,   // Many marathon sessions
-            spike_multiplier: 2.2,
+            spike_probability: 0.30,   // Constant marathon sessions
+            spike_multiplier: 2.8,
         }
     }
     
@@ -147,8 +147,8 @@ impl PatternConfig {
             use_weekly_rhythm: true,
             vacation_frequency: 0.02,  // Burnout prevention
             vacation_duration: (1, 4),
-            spike_probability: 0.25,   // Constant sprints
-            spike_multiplier: 2.5,
+            spike_probability: 0.35,   // Always in sprint mode
+            spike_multiplier: 3.2,
         }
     }
 }
@@ -201,11 +201,11 @@ impl ConfigurablePattern {
         Self { config }
     }
     
-    fn should_work_today(&self, date: NaiveDate, rng: &mut ChaCha8Rng) -> bool {
+    fn should_work_today(&self, date: NaiveDate, rng: &mut ChaCha8Rng, worked_yesterday: bool, days_since_work: u32) -> bool {
         let base_probability = self.config.intensity.get_work_probability();
         let is_weekend = matches!(date.weekday(), Weekday::Sat | Weekday::Sun);
         
-        // Significantly reduce weekend work for all patterns
+        // Base weekend/weekday probability
         let mut probability = if is_weekend {
             match self.config.intensity {
                 IntensityLevel::Casual => 0.05,      // 5% chance
@@ -218,9 +218,35 @@ impl ConfigurablePattern {
             base_probability
         };
         
-        // Add more randomization to create natural variance (±10%)
-        let variation = rng.random_range(-0.1..=0.1);
-        probability = (probability + variation).clamp(0.0, 1.0);
+        // Streak bonus - if worked yesterday, much higher chance today
+        if worked_yesterday && !is_weekend {
+            probability *= 1.8; // 80% boost for weekday streaks
+        } else if worked_yesterday && is_weekend {
+            probability *= 1.4; // 40% boost for weekend continuation
+        }
+        
+        // Prevent long weekday gaps - increase probability after 2+ days off
+        if !is_weekend && days_since_work >= 2 {
+            let gap_pressure = (days_since_work as f64 - 1.0) * 0.3;
+            probability += gap_pressure;
+        }
+        
+        // Project phase simulation - some weeks are more intense
+        let week_seed = (date.num_days_from_ce() / 7) as u64;
+        let mut week_rng = ChaCha8Rng::seed_from_u64(week_seed);
+        let project_phase = week_rng.random::<f64>();
+        
+        if project_phase < 0.15 {
+            // Quiet phase (15% of weeks)
+            probability *= 0.6;
+        } else if project_phase > 0.75 {
+            // Intense phase (25% of weeks) 
+            probability *= 1.5;
+        }
+        
+        // Cap probability and add small variance
+        let variation = rng.random_range(-0.05..=0.05);
+        probability = (probability + variation).clamp(0.0, 0.95);
         
         rng.random::<f64>() < probability
     }
@@ -271,6 +297,8 @@ impl Pattern for ConfigurablePattern {
         let mut commits = Vec::new();
         let mut in_vacation = false;
         let mut vacation_end = start;
+        let mut worked_yesterday = false;
+        let mut days_since_work = 0u32;
         
         let mut current = start;
         while current <= end {
@@ -290,12 +318,18 @@ impl Pattern for ConfigurablePattern {
                 if current >= vacation_end {
                     in_vacation = false;
                 }
+                worked_yesterday = false;
+                days_since_work += 1;
                 current = current.succ_opt().unwrap();
                 continue;
             }
             
-            // Check if working today
-            if !self.should_work_today(current, &mut rng) {
+            // Check if working today (with streak tracking)
+            let working_today = self.should_work_today(current, &mut rng, worked_yesterday, days_since_work);
+            
+            if !working_today {
+                worked_yesterday = false;
+                days_since_work += 1;
                 current = current.succ_opt().unwrap();
                 continue;
             }
@@ -309,6 +343,9 @@ impl Pattern for ConfigurablePattern {
                 commits.push(create_commit_at_time(current, hour, minute));
             }
             
+            // Update streak tracking
+            worked_yesterday = true;
+            days_since_work = 0;
             current = current.succ_opt().unwrap();
         }
         

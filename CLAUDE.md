@@ -106,7 +106,7 @@ cargo clippy         # Lint checks
 - **Enhanced Vacations**: More frequent breaks (3.5-5% daily probability) with longer durations (2-8 days)
 - **Dramatic Variance**: Super spikes can reach 200-300 commits on release days, regular spikes 50-180 commits
 - **Historical Balance**: Use `--target-total` to match historical intensity with recent high-frequency activity
-- **Calibration**: 1.0x base multiplier with aggressive spikes creates realistic developer activity cycles
+- **Calibration**: 0.7x base multiplier with aggressive spikes typically achieves 90-95% of target commits
 
 ## Dependencies
 

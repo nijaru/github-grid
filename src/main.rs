@@ -462,8 +462,8 @@ fn calibrate_pattern_for_target(commits_needed: u32, days_in_range: i64) -> Patt
     let avg_per_day = commits_needed as f64 / days_in_range as f64;
     
     // Choose intensity level based on required daily average
-    // Adjusted for consistent undershooting: 1.0x should hit target more accurately
-    let target_avg = avg_per_day * 1.0;  // Direct: we've been undershooting with 0.9x
+    // Calibrated for aggressive spike system: 0.7x accounts for frequent high spikes  
+    let target_avg = avg_per_day * 0.7;  // Conservative: two-tier spikes significantly boost output
     
     let intensity = if target_avg < 5.0 {
         IntensityLevel::Casual

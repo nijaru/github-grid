@@ -80,7 +80,7 @@ cargo clippy         # Lint checks
 ### Key Features
 
 - **Target-Based Generation**: `--target-total` counts existing commits and calibrates patterns (typically 90-95% accuracy)
-- **Realistic Activity Patterns**: Streak logic, project phases, holiday awareness, enhanced spike days (18-38% probability, 2.8x multipliers)
+- **Realistic Activity Patterns**: Streak logic, project phases, holiday awareness, two-tier spike system (regular: 25-48%, super: 2-10% with 5-8x multipliers)
 - **Visual Balance**: Automatically matches intensity to recent activity for proper GitHub graph coloring
 - **Deterministic RNG**: ChaCha8Rng seeded by date for consistent results across runs
 
@@ -101,11 +101,12 @@ cargo clippy         # Lint checks
 ## Pattern Realism Notes
 
 - **AI-Era Development**: Patterns designed for modern AI-assisted workflows with frequent small commits
-- **Visual Authenticity**: Higher spike frequencies create more natural-looking contribution graphs
+- **Visual Authenticity**: Two-tier spike system creates dramatic variance - regular spikes (feature days) + super spikes (release/deadline days)
 - **Holiday Awareness**: Reduced activity during Christmas/New Year, Thanksgiving, July 4th, Memorial Day, Labor Day  
 - **Enhanced Vacations**: More frequent breaks (3.5-5% daily probability) with longer durations (2-8 days)
+- **Dramatic Variance**: Super spikes can reach 200-300 commits on release days, regular spikes 50-180 commits
 - **Historical Balance**: Use `--target-total` to match historical intensity with recent high-frequency activity
-- **Calibration**: 0.9x base multiplier with enhanced spikes typically achieves 90-95% of target commits
+- **Calibration**: 1.0x base multiplier with aggressive spikes creates realistic developer activity cycles
 
 ## Dependencies
 

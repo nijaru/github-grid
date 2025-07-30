@@ -462,8 +462,8 @@ fn calibrate_pattern_for_target(commits_needed: u32, days_in_range: i64) -> Patt
     let avg_per_day = commits_needed as f64 / days_in_range as f64;
     
     // Choose intensity level based on required daily average
-    // Calibrated based on testing: 0.9x gets us close to target with variance
-    let target_avg = avg_per_day * 0.9;  // Balanced: accounts for spikes while hitting target
+    // Adjusted for consistent undershooting: 1.0x should hit target more accurately
+    let target_avg = avg_per_day * 1.0;  // Direct: we've been undershooting with 0.9x
     
     let intensity = if target_avg < 5.0 {
         IntensityLevel::Casual
@@ -487,13 +487,13 @@ fn calibrate_pattern_for_target(commits_needed: u32, days_in_range: i64) -> Patt
         IntensityLevel::Extreme => 0.015,    // Rare but necessary
     };
     
-    // Enhanced spike probability for more realistic patterns
+    // More aggressive spike probability for dramatic variance
     let spike_prob = match intensity {
-        IntensityLevel::Casual => 0.18,
-        IntensityLevel::Active => 0.22,
-        IntensityLevel::Maintainer => 0.28,
-        IntensityLevel::Hyperactive => 0.32,
-        IntensityLevel::Extreme => 0.38,
+        IntensityLevel::Casual => 0.25,
+        IntensityLevel::Active => 0.32,
+        IntensityLevel::Maintainer => 0.38,
+        IntensityLevel::Hyperactive => 0.42,
+        IntensityLevel::Extreme => 0.48,
     };
     
     PatternConfig {
@@ -502,6 +502,6 @@ fn calibrate_pattern_for_target(commits_needed: u32, days_in_range: i64) -> Patt
         vacation_frequency: vacation_freq,
         vacation_duration: (2, 8),  // Longer, more realistic breaks
         spike_probability: spike_prob,
-        spike_multiplier: 2.8,  // Higher spikes for more realistic deadline/feature patterns
+        spike_multiplier: 3.5,  // Much more dramatic spikes for release/deadline days
     }
 }

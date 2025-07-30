@@ -66,6 +66,26 @@ impl IntensityLevel {
             IntensityLevel::Extreme => 0.95,     // Rarely take breaks
         }
     }
+    
+    fn get_regular_spike_cap(&self) -> u32 {
+        match self {
+            IntensityLevel::Casual => 20,
+            IntensityLevel::Active => 50,
+            IntensityLevel::Maintainer => 80,
+            IntensityLevel::Hyperactive => 120,
+            IntensityLevel::Extreme => 180,
+        }
+    }
+    
+    fn get_super_spike_cap(&self) -> u32 {
+        match self {
+            IntensityLevel::Casual => 30,
+            IntensityLevel::Active => 80,
+            IntensityLevel::Maintainer => 140,
+            IntensityLevel::Hyperactive => 200,
+            IntensityLevel::Extreme => 300,
+        }
+    }
 }
 
 // Weekly rhythm multipliers (realistic work patterns with slight randomization)
@@ -286,6 +306,31 @@ impl ConfigurablePattern {
         rng.random::<f64>() < probability
     }
     
+    fn apply_spike_multiplier(&self, base_commits: u32, rng: &mut ChaCha8Rng) -> u32 {
+        // Super spike probability (rare but dramatic)
+        let super_spike_prob = match self.config.intensity {
+            IntensityLevel::Casual => 0.02,
+            IntensityLevel::Active => 0.04,
+            IntensityLevel::Maintainer => 0.06,
+            IntensityLevel::Hyperactive => 0.08,
+            IntensityLevel::Extreme => 0.10,
+        };
+        
+        if rng.random::<f64>() < super_spike_prob {
+            // Super spike: release/deadline day (5-8x multiplier)
+            let multiplier = rng.random_range(5.0..=8.0);
+            let commits = (base_commits as f64 * multiplier) as u32;
+            commits.min(self.config.intensity.get_super_spike_cap())
+        } else if rng.random::<f64>() < self.config.spike_probability {
+            // Regular spike: feature completion day
+            let multiplier = self.config.spike_multiplier + rng.random_range(-0.5..=1.0);
+            let commits = (base_commits as f64 * multiplier) as u32;
+            commits.min(self.config.intensity.get_regular_spike_cap())
+        } else {
+            base_commits
+        }
+    }
+    
     fn get_base_commits(&self, date: NaiveDate, rng: &mut ChaCha8Rng) -> u32 {
         let is_weekend = matches!(date.weekday(), Weekday::Sat | Weekday::Sun);
         
@@ -303,20 +348,8 @@ impl ConfigurablePattern {
             commits = (commits as f64 * multiplier) as u32;
         }
         
-        // Apply spike days with more dramatic effect
-        if rng.random::<f64>() < self.config.spike_probability {
-            let spike_variation = rng.random_range(0.5..=1.5); // 50% to 150% extra
-            let multiplier = self.config.spike_multiplier + spike_variation;
-            commits = (commits as f64 * multiplier) as u32;
-            // Cap spikes at reasonable levels
-            commits = commits.min(match self.config.intensity {
-                IntensityLevel::Casual => 15,
-                IntensityLevel::Active => 40,
-                IntensityLevel::Maintainer => 60,
-                IntensityLevel::Hyperactive => 100,
-                IntensityLevel::Extreme => 150,
-            });
-        }
+        // Apply spikes: regular feature days + rare super spikes (releases/deadlines)
+        commits = self.apply_spike_multiplier(commits, rng);
         
         // Allow zero commits sometimes even on "work" days
         if commits == 0 && rng.random::<f64>() < 0.3 {
